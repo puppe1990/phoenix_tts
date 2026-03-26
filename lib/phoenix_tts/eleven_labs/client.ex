@@ -166,7 +166,7 @@ defmodule PhoenixTts.ElevenLabs.Client do
     Req.new(
       base_url: Application.fetch_env!(:phoenix_tts, :elevenlabs_base_url),
       headers: [{"xi-api-key", api_key}],
-      receive_timeout: 15_000
+      receive_timeout: Application.get_env(:phoenix_tts, :elevenlabs_receive_timeout, 60_000)
     )
   end
 

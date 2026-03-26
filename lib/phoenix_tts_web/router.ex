@@ -18,6 +18,7 @@ defmodule PhoenixTtsWeb.Router do
     pipe_through :browser
 
     get "/history/:history_item_id/audio", HistoryAudioController, :show
+    get "/generations/:id/audio", GenerationAudioController, :show
     live "/", AudioLive, :index
     live "/clone", AudioLive, :clone
     live "/recentes", AudioLive, :recentes

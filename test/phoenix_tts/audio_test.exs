@@ -6,6 +6,10 @@ defmodule PhoenixTts.AudioTest do
   alias PhoenixTts.Audio.Voice
 
   defmodule FakeElevenLabsClient do
+    def synthesize_speech("timeout case", _opts) do
+      {:error, "timeout"}
+    end
+
     def synthesize_speech(text, opts) do
       send(self(), {:synthesize_speech, text, opts})
 
@@ -171,6 +175,20 @@ defmodule PhoenixTts.AudioTest do
            } = errors_on(changeset)
 
     refute_received {:synthesize_speech, _, _}
+  end
+
+  test "create_generation turns timeout into an actionable runtime error" do
+    assert {:error, changeset} =
+             Audio.create_generation(%{
+               "text" => "timeout case",
+               "voice_id" => "voice_br",
+               "model_id" => "eleven_multilingual_v2",
+               "output_format" => "mp3_44100_128",
+               "language_code" => "pt"
+             })
+
+    assert %{runtime: ["A ElevenLabs demorou mais que o limite local. O áudio pode ter sido gerado; confira Itens recentes."]} =
+             errors_on(changeset)
   end
 
   test "catalog helpers expose remote voices, models, history and endpoint map" do

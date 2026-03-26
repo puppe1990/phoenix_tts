@@ -925,7 +925,7 @@ defmodule PhoenixTtsWeb.AudioLive do
                       class="mt-4 w-full opacity-90"
                       controls
                     >
-                      <source src={"/#{generation.audio_path}"} type={generation.content_type} />
+                      <source src={~p"/generations/#{generation.id}/audio"} type={generation.content_type} />
                     </audio>
                     <div class="mt-4 flex flex-wrap items-center gap-4">
                       <button
@@ -937,7 +937,7 @@ defmodule PhoenixTtsWeb.AudioLive do
                         usar novamente esta configuração
                       </button>
                       <a
-                        href={"/#{generation.audio_path}"}
+                        href={~p"/generations/#{generation.id}/audio?download=1"}
                         download
                         class="text-sm font-semibold text-[#7fd6e8] underline decoration-[#7fd6e8]/35 underline-offset-4"
                       >
@@ -1072,6 +1072,9 @@ defmodule PhoenixTtsWeb.AudioLive do
 
   defp feedback_message(changeset) do
     cond do
+      runtime_error = first_error(changeset, :runtime) ->
+        runtime_error
+
       text_error = first_error(changeset, :text) ->
         "Revise o texto antes de gerar: #{text_error}"
 

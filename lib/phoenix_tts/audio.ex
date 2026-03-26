@@ -11,6 +11,8 @@ defmodule PhoenixTts.Audio do
     |> Repo.all()
   end
 
+  def get_generation(id), do: Repo.get(Generation, id)
+
   def change_clone_voice(attrs \\ %{}, sample_count \\ 0) do
     {%{}, %{name: :string}}
     |> Ecto.Changeset.cast(attrs, [:name])
@@ -208,13 +210,17 @@ defmodule PhoenixTts.Audio do
   end
 
   defp add_runtime_error(changeset, reason) do
-    Ecto.Changeset.add_error(changeset, :text, normalize_error(reason))
+    Ecto.Changeset.add_error(changeset, :runtime, normalize_error(reason))
   end
 
   defp validate_sample_count(changeset, sample_count) when sample_count > 0, do: changeset
 
   defp validate_sample_count(changeset, _sample_count) do
     Ecto.Changeset.add_error(changeset, :files, "selecione pelo menos um arquivo de audio")
+  end
+
+  defp normalize_error("timeout") do
+    "A ElevenLabs demorou mais que o limite local. O áudio pode ter sido gerado; confira Itens recentes."
   end
 
   defp normalize_error(message) when is_binary(message), do: message
