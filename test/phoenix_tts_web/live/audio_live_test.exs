@@ -57,23 +57,44 @@ defmodule PhoenixTtsWeb.AudioLiveTest do
        ]}
     end
 
-    def list_history(_params \\ %{}) do
-      {:ok,
-       %{
-         items: [
+    def list_history(params \\ %{}) do
+      case Map.get(params, :start_after_history_item_id) || Map.get(params, "start_after_history_item_id") do
+        "hist_remote_1" ->
+          {:ok,
            %{
-             history_item_id: "hist_remote_1",
-             request_id: "req_remote_1",
-             voice_id: "voice_br",
-             model_id: "eleven_multilingual_v2",
-             text: "Texto remoto da API",
-             date_unix: 1_743_000_000,
-             character_count_change_to: 18
-           }
-         ],
-         has_more: false,
-         last_history_item_id: "hist_remote_1"
-       }}
+             items: [
+               %{
+                 history_item_id: "hist_remote_2",
+                 request_id: "req_remote_2",
+                 voice_id: "voice_relax",
+                 model_id: "eleven_flash_v2_5",
+                 text: "Texto remoto da API 2",
+                 date_unix: 1_743_000_100,
+                 character_count_change_to: 24
+               }
+             ],
+             has_more: false,
+             last_history_item_id: "hist_remote_2"
+           }}
+
+        _ ->
+          {:ok,
+           %{
+             items: [
+               %{
+                 history_item_id: "hist_remote_1",
+                 request_id: "req_remote_1",
+                 voice_id: "voice_br",
+                 model_id: "eleven_multilingual_v2",
+                 text: "Texto remoto da API",
+                 date_unix: 1_743_000_000,
+                 character_count_change_to: 18
+               }
+             ],
+             has_more: true,
+             last_history_item_id: "hist_remote_1"
+           }}
+      end
     end
 
     def get_history_audio(_history_item_id) do
@@ -154,16 +175,27 @@ defmodule PhoenixTtsWeb.AudioLiveTest do
     assert html =~ "0 / 5000 chars"
     assert html =~ "Idioma"
     assert html =~ "Português"
-    assert html =~ "Finder de voz"
-    assert html =~ "Finder de modelo"
-    assert html =~ "Finder de idioma"
+    assert html =~ "voice-combobox-input"
+    assert html =~ "model-combobox-input"
+    assert html =~ "language-combobox-input"
     assert html =~ "ouvir agora"
     assert html =~ "baixar áudio"
+    assert html =~ "Carregar mais"
     assert html =~ "phx-disable-with=\"Gerando áudio...\""
   end
 
   test "submitting the form creates an audio entry and renders the player", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/")
+
+    _html =
+      view
+      |> element("#language-combobox-input")
+      |> render_keyup(%{"field" => "language", "value" => "en"})
+
+    _html =
+      view
+      |> element("button[phx-click=\"select_combobox\"][phx-value-field=\"language\"][phx-value-value=\"en\"]")
+      |> render_click()
 
     params = %{
       "text" => "Escreva um áudio curto para aliviar a sensação de peso antes de dormir.",
@@ -202,11 +234,27 @@ defmodule PhoenixTtsWeb.AudioLiveTest do
     assert html =~ "18 chars"
   end
 
+  test "loads the next page of recent ElevenLabs items", %{conn: conn} do
+    {:ok, view, html} = live(conn, ~p"/")
+
+    assert html =~ "Texto remoto da API"
+    assert html =~ "Carregar mais"
+
+    html =
+      view
+      |> element("button[phx-click=\"load_more_remote_history\"]")
+      |> render_click()
+
+    assert html =~ "Texto remoto da API"
+    assert html =~ "Texto remoto da API 2"
+    refute html =~ "Carregar mais"
+  end
+
   test "clicking a voice card selects it in the form", %{conn: conn} do
     {:ok, view, html} = live(conn, ~p"/")
 
     assert html =~ "selecionada"
-    refute html =~ "Voz Relax (voice_relax)</option><option selected"
+    assert html =~ "value=\"Narradora BR\""
 
     html =
       view
@@ -214,40 +262,40 @@ defmodule PhoenixTtsWeb.AudioLiveTest do
       |> render_click()
 
     assert html =~ "Voz Relax"
-    assert html =~ ~r/(selected=\"\" value=\"voice_relax\"|value=\"voice_relax\" selected=\"\")/
+    assert html =~ "value=\"Voz Relax\""
   end
 
-  test "finder inputs filter voice, model and language options", %{conn: conn} do
+  test "combobox inputs filter voice, model and language options", %{conn: conn} do
     {:ok, view, html} = live(conn, ~p"/")
 
     assert html =~ "Narradora BR"
-    assert html =~ "Eleven Flash v2.5"
-    assert html =~ "Japonês"
+    assert html =~ "value=\"Eleven Multilingual v2\""
+    assert html =~ "value=\"Português\""
 
     html =
       view
-      |> element("#voice-finder")
-      |> render_keyup(%{"value" => "relax"})
+      |> element("#voice-combobox-input")
+      |> render_keyup(%{"field" => "voice", "value" => "relax"})
 
-    refute html =~ "clique para usar</span></div></button>" <> ""
-    refute html =~ "Narradora BR</p><p class=\"mt-1 text-xs uppercase tracking-[0.18em] text-white/35\">voice_br</p>"
-    assert html =~ "Voz Relax (voice_relax)"
+    assert html =~ "value=\"relax\""
+    assert html =~ "Voz Relax"
+    assert html =~ "voice_relax"
 
     html =
       view
-      |> element("#model-finder")
-      |> render_keyup(%{"value" => "flash"})
+      |> element("#model-combobox-input")
+      |> render_keyup(%{"field" => "model", "value" => "flash"})
 
     assert html =~ "value=\"flash\""
-    assert html =~ "Eleven Flash v2.5"
 
     html =
       view
-      |> element("#language-finder")
-      |> render_keyup(%{"value" => "ja"})
+      |> element("#language-combobox-input")
+      |> render_keyup(%{"field" => "language", "value" => "ja"})
 
     assert html =~ "value=\"ja\""
     assert html =~ "Japonês"
+    refute html =~ "Português</div><div class=\"mt-1 text-xs uppercase tracking-[0.14em] text-white/35\">pt"
   end
 
   test "reusing a generation reapplies its configuration", %{conn: conn} do

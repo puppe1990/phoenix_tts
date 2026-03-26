@@ -48,23 +48,44 @@ defmodule PhoenixTts.AudioTest do
        ]}
     end
 
-    def list_history(_params \\ %{}) do
-      {:ok,
-       %{
-         items: [
+    def list_history(params \\ %{}) do
+      case Map.get(params, :start_after_history_item_id) || Map.get(params, "start_after_history_item_id") do
+        "hist_remote_1" ->
+          {:ok,
            %{
-             history_item_id: "hist_remote_1",
-             request_id: "req_remote_1",
-             voice_id: "voice_br",
-             model_id: "eleven_multilingual_v2",
-             text: "Texto remoto",
-             date_unix: 1_743_000_000,
-             character_count_change_to: 12
-           }
-         ],
-         has_more: false,
-         last_history_item_id: "hist_remote_1"
-       }}
+             items: [
+               %{
+                 history_item_id: "hist_remote_2",
+                 request_id: "req_remote_2",
+                 voice_id: "voice_br",
+                 model_id: "eleven_multilingual_v2",
+                 text: "Texto remoto 2",
+                 date_unix: 1_743_000_100,
+                 character_count_change_to: 13
+               }
+             ],
+             has_more: false,
+             last_history_item_id: "hist_remote_2"
+           }}
+
+        _ ->
+          {:ok,
+           %{
+             items: [
+               %{
+                 history_item_id: "hist_remote_1",
+                 request_id: "req_remote_1",
+                 voice_id: "voice_br",
+                 model_id: "eleven_multilingual_v2",
+                 text: "Texto remoto",
+                 date_unix: 1_743_000_000,
+                 character_count_change_to: 12
+               }
+             ],
+             has_more: true,
+             last_history_item_id: "hist_remote_1"
+           }}
+      end
     end
   end
 
@@ -142,6 +163,9 @@ defmodule PhoenixTts.AudioTest do
     assert [%Voice{voice_id: "voice_br", category: "premade"}] = Repo.all(Voice)
     assert [%{id: "eleven_multilingual_v2"}] = Audio.available_models()
     assert [%{history_item_id: "hist_remote_1"}] = Audio.remote_history()
+    assert {:ok, %{has_more: true, last_history_item_id: "hist_remote_1"}} = Audio.remote_history_page()
+    assert {:ok, %{items: [%{history_item_id: "hist_remote_2"}]}} =
+             Audio.remote_history_page(%{start_after_history_item_id: "hist_remote_1"})
 
     endpoint_slugs =
       Audio.endpoint_catalog()

@@ -7,9 +7,9 @@ defmodule PhoenixTtsWeb.AudioLive do
 
   def mount(_params, _session, socket) do
     voices = Audio.available_voices()
-    remote_history = Audio.remote_history()
     models = Audio.available_models()
     form_attrs = default_form_attrs(voices, models)
+    {remote_history, remote_history_cursor, remote_history_has_more} = load_remote_history()
 
     {:ok,
      socket
@@ -17,15 +17,18 @@ defmodule PhoenixTtsWeb.AudioLive do
      |> assign(:voices, voices)
      |> assign(:models, models)
      |> assign(:remote_history, remote_history)
+     |> assign(:remote_history_cursor, remote_history_cursor)
+     |> assign(:remote_history_has_more, remote_history_has_more)
+     |> assign(:remote_history_loading, false)
      |> assign(:generations, Audio.list_generations())
      |> assign(:recent_generation_id, nil)
      |> assign(:advanced_open, false)
      |> assign(:form_feedback, nil)
      |> assign(:max_chars, @max_chars)
-     |> assign(:voice_query, "")
-     |> assign(:model_query, "")
-     |> assign(:language_query, "")
      |> assign(:api_key_configured, Audio.api_key_configured?())
+     |> assign(:voice_box_open, false)
+     |> assign(:model_box_open, false)
+     |> assign(:language_box_open, false)
      |> assign_form(form_attrs)}
   end
 
@@ -69,23 +72,65 @@ defmodule PhoenixTtsWeb.AudioLive do
     {:noreply,
      socket
      |> assign(:form_feedback, nil)
+     |> assign(:voice_box_open, false)
      |> assign_form(attrs)}
   end
 
-  def handle_event("filter_voice", %{"value" => value}, socket) do
-    {:noreply, assign(socket, :voice_query, value)}
+  def handle_event("open_combobox", %{"field" => field}, socket) do
+    {:noreply, toggle_combobox(socket, field, true)}
   end
 
-  def handle_event("filter_model", %{"value" => value}, socket) do
-    {:noreply, assign(socket, :model_query, value)}
+  def handle_event("close_combobox", %{"field" => field}, socket) do
+    {:noreply,
+     socket
+     |> toggle_combobox(field, false)
+     |> reset_combobox_query(field)}
   end
 
-  def handle_event("filter_language", %{"value" => value}, socket) do
-    {:noreply, assign(socket, :language_query, value)}
+  def handle_event("filter_combobox", %{"field" => field, "value" => value}, socket) do
+    {:noreply,
+     socket
+     |> toggle_combobox(field, true)
+     |> assign_combobox_query(field, value)}
+  end
+
+  def handle_event("select_combobox", %{"field" => field, "value" => value}, socket) do
+    attrs =
+      case field do
+        "voice" -> Map.put(socket.assigns.form_attrs, "voice_id", value)
+        "model" -> Map.put(socket.assigns.form_attrs, "model_id", value)
+        "language" -> Map.put(socket.assigns.form_attrs, "language_code", value)
+      end
+
+    {:noreply,
+     socket
+     |> assign(:form_feedback, nil)
+     |> close_all_comboboxes()
+     |> assign_form(attrs)}
   end
 
   def handle_event("toggle_advanced", _params, socket) do
     {:noreply, update(socket, :advanced_open, &(!&1))}
+  end
+
+  def handle_event("load_more_remote_history", _params, socket) do
+    socket = assign(socket, :remote_history_loading, true)
+
+    case Audio.remote_history_page(%{start_after_history_item_id: socket.assigns.remote_history_cursor}) do
+      {:ok, %{items: items, has_more: has_more, last_history_item_id: last_history_item_id}} ->
+        {:noreply,
+         socket
+         |> assign(:remote_history_loading, false)
+         |> assign(:remote_history, socket.assigns.remote_history ++ items)
+         |> assign(:remote_history_has_more, has_more)
+         |> assign(:remote_history_cursor, history_cursor(items, last_history_item_id, socket.assigns.remote_history_cursor))}
+
+      {:error, _reason} ->
+        {:noreply,
+         socket
+         |> assign(:remote_history_loading, false)
+         |> assign(:form_feedback, {:error, "Não foi possível carregar mais itens recentes agora."})}
+    end
   end
 
   def handle_event("reuse_generation", %{"id" => id}, socket) do
@@ -216,84 +261,40 @@ defmodule PhoenixTtsWeb.AudioLive do
                           Básico
                         </p>
 
-                        <div class="mt-4 space-y-3">
-                          <label class="block">
-                            <span class="mb-1 block text-xs uppercase tracking-[0.18em] text-white/38">
-                              Finder de voz
-                            </span>
-                            <input
-                              id="voice-finder"
-                              name="voice_query"
-                              type="text"
-                              value={@voice_query}
-                              phx-keyup="filter_voice"
-                              phx-debounce="200"
-                              placeholder="Buscar por nome, accent ou voice id"
-                              class="w-full rounded-[1.1rem] border border-white/10 bg-[#111b2f] px-4 py-3 text-sm text-[#f7f1e8] placeholder:text-white/30"
-                            />
-                          </label>
-                        </div>
-
-                        <.input
-                          field={@form[:voice_id]}
-                          type="select"
+                        <.input field={@form[:voice_id]} type="hidden" />
+                        <.combobox
+                          id="voice-combobox"
+                          field="voice"
                           label="Voz"
-                          options={voice_options(filtered_voices(@voices, @voice_query, @form_attrs["voice_id"]))}
-                          prompt={voice_prompt(filtered_voices(@voices, @voice_query, @form_attrs["voice_id"]))}
-                          class="rounded-[1.1rem] border border-white/10 bg-[#111b2f] px-4 py-3 text-[#f7f1e8]"
+                          value={@voice_query}
+                          open={@voice_box_open}
+                          placeholder="Buscar voz por nome, accent ou voice id"
+                          options={voice_combobox_options(@voices, active_voice_query(@voice_query, @voices, @form_attrs["voice_id"]))}
+                          empty_label="Nenhuma voz encontrada"
                         />
 
-                        <div class="space-y-3">
-                          <label class="block">
-                            <span class="mb-1 block text-xs uppercase tracking-[0.18em] text-white/38">
-                              Finder de modelo
-                            </span>
-                            <input
-                              id="model-finder"
-                              name="model_query"
-                              type="text"
-                              value={@model_query}
-                              phx-keyup="filter_model"
-                              phx-debounce="200"
-                              placeholder="Buscar por nome ou id do modelo"
-                              class="w-full rounded-[1.1rem] border border-white/10 bg-[#111b2f] px-4 py-3 text-sm text-[#f7f1e8] placeholder:text-white/30"
-                            />
-                          </label>
-                        </div>
-
-                        <.input
-                          field={@form[:model_id]}
-                          type="select"
+                        <.input field={@form[:model_id]} type="hidden" />
+                        <.combobox
+                          id="model-combobox"
+                          field="model"
                           label="Modelo"
-                          options={model_options(filtered_models(@models, @model_query, @form_attrs["model_id"]))}
-                          prompt={model_prompt(filtered_models(@models, @model_query, @form_attrs["model_id"]))}
-                          class="rounded-[1.1rem] border border-white/10 bg-[#111b2f] px-4 py-3 text-[#f7f1e8]"
+                          value={@model_query}
+                          open={@model_box_open}
+                          placeholder="Buscar por nome ou id do modelo"
+                          options={model_combobox_options(@models, active_model_query(@model_query, @models, @form_attrs["model_id"]))}
+                          empty_label="Nenhum modelo encontrado"
                         />
 
-                        <div class="space-y-3">
-                          <label class="block">
-                            <span class="mb-1 block text-xs uppercase tracking-[0.18em] text-white/38">
-                              Finder de idioma
-                            </span>
-                            <input
-                              id="language-finder"
-                              name="language_query"
-                              type="text"
-                              value={@language_query}
-                              phx-keyup="filter_language"
-                              phx-debounce="200"
-                              placeholder="Buscar por nome ou código"
-                              class="w-full rounded-[1.1rem] border border-white/10 bg-[#111b2f] px-4 py-3 text-sm text-[#f7f1e8] placeholder:text-white/30"
-                            />
-                          </label>
-                        </div>
-
-                        <.input
-                          field={@form[:language_code]}
-                          type="select"
+                        <.input field={@form[:language_code]} type="hidden" />
+                        <.combobox
+                          id="language-combobox"
+                          field="language"
                           label="Idioma"
-                          options={filtered_languages(@language_query, @form_attrs["language_code"])}
-                          class="rounded-[1.1rem] border border-white/10 bg-[#111b2f] px-4 py-3 text-[#f7f1e8]"
+                          value={@language_query}
+                          open={@language_box_open}
+                          placeholder="Buscar por nome ou código"
+                          options={language_combobox_options(active_language_query(@language_query, @form_attrs["language_code"]))}
+                          empty_label="Nenhum idioma encontrado"
                         />
 
                         <div class="rounded-[1.2rem] border border-white/10 bg-[#0d1729] px-4 py-3 text-sm text-white/60">
@@ -421,7 +422,7 @@ defmodule PhoenixTtsWeb.AudioLive do
                 </div>
 
                 <button
-                  :for={voice <- matching_voices(@voices, @voice_query)}
+                  :for={voice <- matching_voices(@voices, active_voice_query(@voice_query, @voices, @form_attrs["voice_id"]))}
                   type="button"
                   phx-click="select_voice"
                   phx-value-voice_id={voice.id}
@@ -519,6 +520,18 @@ defmodule PhoenixTtsWeb.AudioLive do
                     </div>
                   </article>
                 </div>
+
+                <div :if={@remote_history_has_more} class="mt-6 flex justify-center">
+                  <button
+                    type="button"
+                    phx-click="load_more_remote_history"
+                    phx-disable-with="Carregando mais..."
+                    disabled={@remote_history_loading}
+                    class="inline-flex items-center justify-center rounded-full border border-white/10 px-5 py-3 text-sm font-semibold text-[#7fd6e8] transition hover:border-[#7fd6e8]/40 hover:bg-[#0f1b31] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Carregar mais
+                  </button>
+                </div>
               </section>
 
               <section class="rounded-[2rem] border border-white/10 bg-[#0a1120]/90 p-5 sm:p-6">
@@ -612,11 +625,82 @@ defmodule PhoenixTtsWeb.AudioLive do
     """
   end
 
+  attr :id, :string, required: true
+  attr :field, :string, required: true
+  attr :label, :string, required: true
+  attr :value, :string, default: ""
+  attr :open, :boolean, default: false
+  attr :placeholder, :string, default: ""
+  attr :options, :list, default: []
+  attr :empty_label, :string, default: "Nenhuma opção encontrada"
+
+  def combobox(assigns) do
+    ~H"""
+    <div
+      class="relative mt-4"
+      phx-click-away="close_combobox"
+      phx-value-field={@field}
+    >
+      <label for={"#{@id}-input"} class="mb-1 block text-sm font-medium text-[#f7f1e8]">
+        {@label}
+      </label>
+      <input
+        id={"#{@id}-input"}
+        type="text"
+        value={@value}
+        phx-focus="open_combobox"
+        phx-keyup="filter_combobox"
+        phx-value-field={@field}
+        phx-debounce="150"
+        placeholder={@placeholder}
+        autocomplete="off"
+        class="w-full rounded-[1.1rem] border border-white/10 bg-[#111b2f] px-4 py-3 pr-10 text-sm text-[#f7f1e8] placeholder:text-white/30"
+      />
+      <button
+        type="button"
+        phx-click="open_combobox"
+        phx-value-field={@field}
+        class="absolute right-3 top-[2.35rem] text-white/45"
+      >
+        <.icon name="hero-chevron-down" class="size-4" />
+      </button>
+
+      <div
+        :if={@open}
+        id={"#{@id}-menu"}
+        class="absolute z-20 mt-2 max-h-64 w-full overflow-y-auto rounded-[1.1rem] border border-white/10 bg-[#0d1729] p-2 shadow-[0_24px_80px_rgba(0,0,0,0.35)]"
+      >
+        <button
+          :for={option <- @options}
+          type="button"
+          phx-click="select_combobox"
+          phx-value-field={@field}
+          phx-value-value={option.value}
+          class="block w-full rounded-xl px-3 py-3 text-left text-sm text-[#f7f1e8] transition hover:bg-[#13233c]"
+        >
+          <div class="font-medium">{option.label}</div>
+          <div :if={option[:hint]} class="mt-1 text-xs uppercase tracking-[0.14em] text-white/35">
+            {option.hint}
+          </div>
+        </button>
+
+        <div
+          :if={Enum.empty?(@options)}
+          class="rounded-xl px-3 py-3 text-sm text-white/45"
+        >
+          {@empty_label}
+        </div>
+      </div>
+    </div>
+    """
+  end
+
   defp assign_form(socket, attrs) do
     normalized = normalize_form_attrs(attrs)
 
     socket
     |> assign(:form_attrs, normalized)
+    |> assign_combobox_defaults(normalized)
     |> assign(
       :form,
       normalized
@@ -675,14 +759,6 @@ defmodule PhoenixTtsWeb.AudioLive do
   defp blank?(value), do: value in [nil, ""]
 
   defp selected_voice?(voice_id, form_attrs), do: form_attrs["voice_id"] == voice_id
-
-  defp voice_options(voices), do: Enum.map(voices, &{"#{&1.name} (#{&1.id})", &1.id})
-  defp model_options(models), do: Enum.map(models, &{"#{&1.name}", &1.id})
-  defp voice_prompt([]), do: "Nenhuma voz carregada"
-  defp voice_prompt(_voices), do: nil
-
-  defp model_prompt([]), do: "Nenhum modelo disponível"
-  defp model_prompt(_models), do: nil
 
   defp summary_voice(voices, voice_id) do
     case Enum.find(voices, &(&1.id == voice_id)) do
@@ -754,12 +830,6 @@ defmodule PhoenixTtsWeb.AudioLive do
     ]
   end
 
-  defp filtered_voices(voices, query, selected_id) do
-    voices
-    |> matching_voices(query)
-    |> keep_selected_voice(voices, selected_id)
-  end
-
   defp matching_voices(voices, query) do
     Enum.filter(voices, fn voice ->
       query == "" or
@@ -769,20 +839,16 @@ defmodule PhoenixTtsWeb.AudioLive do
     end)
   end
 
-  defp filtered_models(models, query, selected_id) do
-    models
-    |> Enum.filter(fn model ->
+  defp matching_models(models, query) do
+    Enum.filter(models, fn model ->
       query == "" or contains_query?(model.name, query) or contains_query?(model.id, query)
     end)
-    |> keep_selected_model(models, selected_id)
   end
 
-  defp filtered_languages(query, selected_code) do
-    language_options()
-    |> Enum.filter(fn {label, value} ->
+  defp matching_languages(query) do
+    Enum.filter(language_options(), fn {label, value} ->
       query == "" or contains_query?(label, query) or contains_query?(value, query)
     end)
-    |> keep_selected_language(selected_code)
   end
 
   defp contains_query?(value, query) when is_binary(value) do
@@ -791,29 +857,87 @@ defmodule PhoenixTtsWeb.AudioLive do
 
   defp contains_query?(_, _), do: false
 
-  defp keep_selected_voice(filtered, voices, selected_id) do
-    maybe_prepend_selected(filtered, Enum.find(voices, &(&1.id == selected_id)), & &1.id)
+  defp voice_combobox_options(voices, query) do
+    Enum.map(matching_voices(voices, query), fn voice ->
+      %{
+        value: voice.id,
+        label: voice.name,
+        hint: [voice.id, voice.labels["accent"]] |> Enum.reject(&blank?/1) |> Enum.join(" • ")
+      }
+    end)
   end
 
-  defp keep_selected_model(filtered, models, selected_id) do
-    maybe_prepend_selected(filtered, Enum.find(models, &(&1.id == selected_id)), & &1.id)
+  defp model_combobox_options(models, query) do
+    Enum.map(matching_models(models, query), fn model ->
+      %{value: model.id, label: model.name, hint: model.id}
+    end)
   end
 
-  defp keep_selected_language(filtered, selected_code) do
-    maybe_prepend_selected(
-      filtered,
-      Enum.find(language_options(), fn {_label, value} -> value == selected_code end),
-      fn {_label, value} -> value end
-    )
+  defp language_combobox_options(query) do
+    Enum.map(matching_languages(query), fn {label, value} ->
+      %{value: value, label: label, hint: value}
+    end)
   end
 
-  defp maybe_prepend_selected(items, nil, _key_fun), do: items
+  defp assign_combobox_defaults(socket, attrs) do
+    socket
+    |> assign(:voice_query, summary_voice(socket.assigns.voices, attrs["voice_id"]))
+    |> assign(:model_query, summary_model(socket.assigns.models, attrs["model_id"]))
+    |> assign(:language_query, summary_language(attrs["language_code"]))
+  end
 
-  defp maybe_prepend_selected(items, selected_item, key_fun) do
-    if Enum.any?(items, fn item -> key_fun.(item) == key_fun.(selected_item) end) do
-      items
-    else
-      [selected_item | items]
+  defp toggle_combobox(socket, "voice", open), do: assign(socket, :voice_box_open, open)
+  defp toggle_combobox(socket, "model", open), do: assign(socket, :model_box_open, open)
+  defp toggle_combobox(socket, "language", open), do: assign(socket, :language_box_open, open)
+
+  defp assign_combobox_query(socket, "voice", value), do: assign(socket, :voice_query, value)
+  defp assign_combobox_query(socket, "model", value), do: assign(socket, :model_query, value)
+  defp assign_combobox_query(socket, "language", value), do: assign(socket, :language_query, value)
+
+  defp reset_combobox_query(socket, "voice"),
+    do: assign(socket, :voice_query, summary_voice(socket.assigns.voices, socket.assigns.form_attrs["voice_id"]))
+
+  defp reset_combobox_query(socket, "model"),
+    do: assign(socket, :model_query, summary_model(socket.assigns.models, socket.assigns.form_attrs["model_id"]))
+
+  defp reset_combobox_query(socket, "language"),
+    do: assign(socket, :language_query, summary_language(socket.assigns.form_attrs["language_code"]))
+
+  defp close_all_comboboxes(socket) do
+    socket
+    |> assign(:voice_box_open, false)
+    |> assign(:model_box_open, false)
+    |> assign(:language_box_open, false)
+  end
+
+  defp active_voice_query(query, voices, selected_id) do
+    if query == summary_voice(voices, selected_id), do: "", else: query
+  end
+
+  defp active_model_query(query, models, selected_id) do
+    if query == summary_model(models, selected_id), do: "", else: query
+  end
+
+  defp active_language_query(query, selected_code) do
+    if query == summary_language(selected_code), do: "", else: query
+  end
+
+  defp load_remote_history do
+    case Audio.remote_history_page() do
+      {:ok, %{items: items, has_more: has_more, last_history_item_id: last_history_item_id}} ->
+        {items, history_cursor(items, last_history_item_id, nil), has_more}
+
+      {:error, _reason} ->
+        {[], nil, false}
+    end
+  end
+
+  defp history_cursor([], last_history_item_id, fallback), do: last_history_item_id || fallback
+
+  defp history_cursor(items, last_history_item_id, _fallback) do
+    case List.last(items) do
+      %{history_item_id: history_item_id} when is_binary(history_item_id) -> history_item_id
+      _ -> last_history_item_id
     end
   end
 

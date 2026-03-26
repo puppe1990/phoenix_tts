@@ -94,10 +94,19 @@ defmodule PhoenixTts.Audio do
     end
   end
 
-  def remote_history do
-    case elevenlabs_client().list_history(%{page_size: 10}) do
+  def remote_history(params \\ %{}) do
+    case remote_history_page(params) do
       {:ok, %{items: items}} -> items
       {:error, _reason} -> []
+    end
+  end
+
+  def remote_history_page(params \\ %{}) do
+    params = Map.merge(%{page_size: 10}, params)
+
+    case elevenlabs_client().list_history(params) do
+      {:ok, result} -> {:ok, result}
+      {:error, reason} -> {:error, reason}
     end
   end
 
