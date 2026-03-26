@@ -48,6 +48,11 @@ defmodule PhoenixTts.AudioTest do
        ]}
     end
 
+    def clone_instant_voice(name, files) do
+      send(self(), {:clone_instant_voice, name, files})
+      {:ok, %{voice_id: "voice_clone_123", name: name}}
+    end
+
     def get_subscription do
       {:ok,
        %{
@@ -188,5 +193,29 @@ defmodule PhoenixTts.AudioTest do
     assert "voices-search" in endpoint_slugs
     assert "models-list" in endpoint_slugs
     assert "history-list" in endpoint_slugs
+    assert "voices-clone-instant" in endpoint_slugs
+  end
+
+  test "clone_voice validates input and sends the uploaded samples to ElevenLabs" do
+    sample_path = Path.join(System.tmp_dir!(), "audio-clone-sample-#{System.unique_integer([:positive])}.mp3")
+    File.write!(sample_path, "FAKE-AUDIO")
+
+    on_exit(fn -> File.rm(sample_path) end)
+
+    assert {:ok, %{voice_id: "voice_clone_123", name: "Minha Voz"}} =
+             Audio.clone_voice(%{"name" => "Minha Voz"}, [
+               %{path: sample_path, filename: "sample.mp3", content_type: "audio/mpeg"}
+             ])
+
+    assert_received {:clone_instant_voice, "Minha Voz", [%{path: ^sample_path, filename: "sample.mp3"}]}
+  end
+
+  test "clone_voice requires a name and at least one sample" do
+    assert {:error, changeset} = Audio.clone_voice(%{"name" => ""}, [])
+
+    assert %{
+             name: ["can't be blank"],
+             files: ["selecione pelo menos um arquivo de audio"]
+           } = errors_on(changeset)
   end
 end

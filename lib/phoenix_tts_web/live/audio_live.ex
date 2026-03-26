@@ -14,6 +14,11 @@ defmodule PhoenixTtsWeb.AudioLive do
 
     {:ok,
      socket
+     |> allow_upload(:samples,
+       accept: :any,
+       max_entries: 10,
+       max_file_size: 25_000_000
+     )
      |> assign(:voices, voices)
      |> assign(:models, models)
      |> assign(:subscription, subscription)
@@ -25,11 +30,14 @@ defmodule PhoenixTtsWeb.AudioLive do
      |> assign(:recent_generation_id, nil)
      |> assign(:advanced_open, false)
      |> assign(:form_feedback, nil)
+     |> assign(:clone_feedback, nil)
+     |> assign(:clone_result, nil)
      |> assign(:max_chars, @max_chars)
      |> assign(:api_key_configured, Audio.api_key_configured?())
      |> assign(:voice_box_open, false)
      |> assign(:model_box_open, false)
      |> assign(:language_box_open, false)
+     |> assign(:clone_form, to_form(Audio.change_clone_voice(), as: :clone_voice))
      |> assign_form(form_attrs)}
   end
 
@@ -69,6 +77,54 @@ defmodule PhoenixTtsWeb.AudioLive do
     end
   end
 
+  def handle_event("validate_clone", %{"clone_voice" => params}, socket) do
+    changeset = Audio.change_clone_voice(params, uploaded_samples_count(socket))
+
+    {:noreply,
+     socket
+     |> assign(:clone_feedback, nil)
+     |> assign(:clone_form, to_form(changeset, as: :clone_voice))}
+  end
+
+  def handle_event("save_clone", %{"clone_voice" => params}, socket) do
+    changeset = Audio.change_clone_voice(params, uploaded_samples_count(socket))
+
+    if changeset.valid? do
+      samples =
+        consume_uploaded_entries(socket, :samples, fn %{path: path}, entry ->
+          {:ok, %{path: path, filename: entry.client_name, content_type: entry.client_type}}
+        end)
+
+      case Audio.clone_voice(params, samples) do
+        {:ok, clone} ->
+          voices = prepend_cloned_voice(socket.assigns.voices, clone)
+
+          {:noreply,
+           socket
+           |> assign(:voices, voices)
+           |> assign(:clone_result, clone)
+           |> assign(
+             :clone_feedback,
+             {:info, "Voice clone criada com sucesso. Use o Voice ID abaixo para validar a nova voz."}
+           )
+           |> assign(:clone_form, to_form(Audio.change_clone_voice(), as: :clone_voice))}
+
+        {:error, changeset} ->
+          {:noreply,
+           socket
+           |> assign(:clone_result, nil)
+           |> assign(:clone_feedback, {:error, clone_feedback_message(changeset)})
+           |> assign(:clone_form, to_form(changeset, as: :clone_voice))}
+      end
+    else
+      {:noreply,
+       socket
+       |> assign(:clone_result, nil)
+       |> assign(:clone_feedback, {:error, clone_feedback_message(changeset)})
+       |> assign(:clone_form, to_form(changeset, as: :clone_voice))}
+    end
+  end
+
   def handle_event("select_voice", %{"voice_id" => voice_id}, socket) do
     attrs =
       socket.assigns.form_attrs
@@ -99,15 +155,15 @@ defmodule PhoenixTtsWeb.AudioLive do
      |> assign_combobox_query(field, value)}
   end
 
-  def handle_event("select_combobox", %{"field" => field, "value" => value}, socket) do
-    if blank?(value) do
+  def handle_event("select_combobox", %{"field" => field, "option" => option}, socket) do
+    if blank?(option) do
       {:noreply, close_all_comboboxes(socket)}
     else
       attrs =
         case field do
-          "voice" -> Map.put(socket.assigns.form_attrs, "voice_id", value)
-          "model" -> Map.put(socket.assigns.form_attrs, "model_id", value)
-          "language" -> Map.put(socket.assigns.form_attrs, "language_code", value)
+          "voice" -> Map.put(socket.assigns.form_attrs, "voice_id", option)
+          "model" -> Map.put(socket.assigns.form_attrs, "model_id", option)
+          "language" -> Map.put(socket.assigns.form_attrs, "language_code", option)
         end
 
       {:noreply,
@@ -189,6 +245,12 @@ defmodule PhoenixTtsWeb.AudioLive do
                   class={nav_link_class(@live_action == :index)}
                 >
                   Studio
+                </.link>
+                <.link
+                  navigate={~p"/clone"}
+                  class={nav_link_class(@live_action == :clone)}
+                >
+                  Clone Voice
                 </.link>
                 <.link
                   navigate={~p"/recentes"}
@@ -522,6 +584,124 @@ defmodule PhoenixTtsWeb.AudioLive do
             </div>
           </section>
 
+          <section
+            :if={@live_action == :clone}
+            class="relative overflow-hidden rounded-[2rem] border border-white/10 bg-[#0b1325]/90 shadow-[0_40px_120px_rgba(0,0,0,0.45)]"
+          >
+            <div class="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(127,214,232,0.18),transparent_28%),radial-gradient(circle_at_75%_20%,rgba(255,184,120,0.14),transparent_22%)]" />
+            <div class="relative grid gap-6 p-5 sm:p-8 xl:grid-cols-[0.9fr_1.1fr] xl:p-10">
+              <article class="rounded-[1.8rem] border border-white/10 bg-[#08101f]/88 p-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] sm:p-8">
+                <p class="text-[11px] font-semibold uppercase tracking-[0.3em] text-[#7fd6e8]/70">
+                  Instant Voice Clone
+                </p>
+                <h2 class="mt-3 font-['Iowan_Old_Style','Palatino_Linotype','Book_Antiqua',serif] text-4xl font-semibold leading-none text-[#f7f1e8]">
+                  Clone sua voz com amostras curtas
+                </h2>
+                <p class="mt-4 text-base leading-7 text-[#d6d0c7]/72">
+                  Envie uma ou mais amostras, defina um nome claro e gere um novo `voice_id` via ElevenLabs Instant Voice Clone.
+                </p>
+
+                <div class="mt-6 grid gap-3 text-sm text-white/60">
+                  <div class="rounded-[1.2rem] border border-white/10 bg-white/[0.03] p-4">
+                    Quanto mais arquivos você enviar, melhor tende a ficar o clone.
+                  </div>
+                  <div class="rounded-[1.2rem] border border-white/10 bg-white/[0.03] p-4">
+                    Formatos aceitos: MP3, WAV, AAC, FLAC e OGG.
+                  </div>
+                  <div class="rounded-[1.2rem] border border-white/10 bg-white/[0.03] p-4">
+                    Depois da criação, o `voice_id` já pode ser usado no Studio.
+                  </div>
+                </div>
+              </article>
+
+              <article class="rounded-[1.8rem] border border-white/10 bg-[#08101f]/88 p-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] sm:p-8">
+                <div
+                  :if={not @api_key_configured}
+                  class="rounded-[1.5rem] border border-[#f29c6b]/30 bg-[#f29c6b]/10 p-4 text-sm text-[#ffe0cf]"
+                >
+                  Configure `ELEVENLABS_API_KEY` no `.env` para liberar a clonagem.
+                </div>
+
+                <div
+                  :if={@clone_feedback}
+                  class={[
+                    "mt-4 rounded-[1.5rem] border p-4 text-sm leading-6",
+                    feedback_class(elem(@clone_feedback, 0))
+                  ]}
+                >
+                  {elem(@clone_feedback, 1)}
+                </div>
+
+                <.form
+                  for={@clone_form}
+                  id="clone-form"
+                  class="mt-4 space-y-5"
+                  phx-change="validate_clone"
+                  phx-submit="save_clone"
+                >
+                  <div>
+                    <label for="clone-name" class="mb-1 block text-sm font-medium text-[#f7f1e8]">
+                      Nome da voz
+                    </label>
+                    <input
+                      id="clone-name"
+                      name="clone_voice[name]"
+                      type="text"
+                      value={Phoenix.HTML.Form.normalize_value("text", @clone_form[:name].value)}
+                      placeholder="Minha Voz Clone"
+                      class="w-full rounded-[1.1rem] border border-white/10 bg-[#111b2f] px-4 py-3 text-sm text-[#f7f1e8] placeholder:text-white/30"
+                    />
+                    <p :if={@clone_form[:name].errors != []} class="mt-2 text-sm text-[#f7b38b]">
+                      {elem(List.first(@clone_form[:name].errors), 0)}
+                    </p>
+                  </div>
+
+                  <div>
+                    <label class="mb-1 block text-sm font-medium text-[#f7f1e8]">Amostras de áudio</label>
+                    <div class="rounded-[1.2rem] border border-dashed border-white/15 bg-white/[0.02] p-4">
+                      <.live_file_input
+                        upload={@uploads.samples}
+                        class="block w-full cursor-pointer text-sm text-white/60 file:mr-4 file:rounded-full file:border-0 file:bg-[#7fe3f5] file:px-4 file:py-2 file:text-sm file:font-semibold file:text-[#07111f]"
+                      />
+                      <div :if={@uploads.samples.entries != []} class="mt-4 space-y-2">
+                        <div
+                          :for={entry <- @uploads.samples.entries}
+                          class="rounded-xl border border-white/10 bg-[#0d1729] px-3 py-3 text-sm text-white/70"
+                        >
+                          {entry.client_name}
+                        </div>
+                      </div>
+                    </div>
+                    <p
+                      :if={clone_files_error(@clone_form)}
+                      class="mt-2 text-sm text-[#f7b38b]"
+                    >
+                      {clone_files_error(@clone_form)}
+                    </p>
+                  </div>
+
+                  <button
+                    type="submit"
+                    phx-disable-with="Clonando voz..."
+                    disabled={not @api_key_configured}
+                    class="inline-flex w-full items-center justify-center rounded-full bg-[#7fe3f5] px-8 py-4 text-sm font-semibold uppercase tracking-[0.18em] text-[#07111f] transition hover:bg-[#a2edfa] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Enviar para clonagem
+                  </button>
+                </.form>
+
+                <div
+                  :if={@clone_result}
+                  class="mt-5 rounded-[1.4rem] border border-white/10 bg-[#0d1729] p-4 text-sm text-white/65"
+                >
+                  <p class="text-[11px] uppercase tracking-[0.24em] text-[#7fd6e8]/70">Voice ID gerado</p>
+                  <p class="mt-3 text-lg font-semibold text-[#f7f1e8]">{@clone_result.voice_id}</p>
+                  <p class="mt-2 text-sm text-white/55">{@clone_result.name}</p>
+                </div>
+              </article>
+            </div>
+          </section>
+
           <section :if={@live_action == :recentes} class="grid gap-6 xl:grid-cols-[0.82fr_1.18fr]">
             <aside class="overflow-hidden rounded-[2rem] border border-white/10 bg-[#0a1120]/90">
               <div class="border-b border-white/10 px-5 py-5 sm:px-6">
@@ -803,7 +983,7 @@ defmodule PhoenixTtsWeb.AudioLive do
           type="button"
           phx-click="select_combobox"
           phx-value-field={@field}
-          phx-value-value={option.value}
+          phx-value-option={option.value}
           class="block w-full rounded-xl px-3 py-3 text-left text-sm text-[#f7f1e8] transition hover:bg-[#13233c]"
         >
           <div class="font-medium">{option.label}</div>
@@ -873,6 +1053,19 @@ defmodule PhoenixTtsWeb.AudioLive do
     end
   end
 
+  defp clone_feedback_message(changeset) do
+    cond do
+      name_error = first_error(changeset, :name) ->
+        "Revise o nome da voz antes de enviar: #{name_error}"
+
+      files_error = first_error(changeset, :files) ->
+        "Adicione amostras de áudio para continuar: #{files_error}"
+
+      true ->
+        "Não foi possível criar a voice clone agora."
+    end
+  end
+
   defp first_error(changeset, field) do
     case Keyword.get_values(changeset.errors, field) do
       [{message, opts} | _] -> translate_error({message, opts})
@@ -919,6 +1112,15 @@ defmodule PhoenixTtsWeb.AudioLive do
       nil -> language_code
     end
   end
+
+  defp prepend_cloned_voice(voices, %{voice_id: voice_id, name: name})
+       when is_binary(voice_id) and voice_id != "" and is_binary(name) and name != "" do
+    cloned_voice = %{id: voice_id, name: name, category: "cloned", labels: %{}}
+
+    [cloned_voice | Enum.reject(voices, &(&1.id == voice_id))]
+  end
+
+  defp prepend_cloned_voice(voices, _clone), do: voices
 
   defp excerpt(nil), do: "Sem texto disponível"
 
@@ -1141,9 +1343,21 @@ defmodule PhoenixTtsWeb.AudioLive do
     |> Calendar.strftime("%d/%m/%Y %H:%M")
   end
 
+  defp page_title(:clone), do: "Clone Voice"
   defp page_title(:recentes), do: "Itens recentes"
   defp page_title(:config), do: "Configuração"
   defp page_title(_), do: "ElevenLabs Audio Studio"
+
+  defp uploaded_samples_count(socket) do
+    length(socket.assigns.uploads.samples.entries)
+  end
+
+  defp clone_files_error(form) do
+    case form[:files].errors do
+      [{message, _opts} | _] -> message
+      _ -> nil
+    end
+  end
 
   defp estimated_token_spend(text) do
     text

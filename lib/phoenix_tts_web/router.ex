@@ -19,6 +19,7 @@ defmodule PhoenixTtsWeb.Router do
 
     get "/history/:history_item_id/audio", HistoryAudioController, :show
     live "/", AudioLive, :index
+    live "/clone", AudioLive, :clone
     live "/recentes", AudioLive, :recentes
     live "/config", AudioLive, :config
   end

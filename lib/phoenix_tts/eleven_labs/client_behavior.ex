@@ -14,6 +14,8 @@ defmodule PhoenixTts.ElevenLabs.ClientBehaviour do
                %{voices: list(map()), has_more: boolean(), next_page_token: String.t() | nil}}
               | {:error, term()}
   @callback list_models() :: {:ok, list(map())} | {:error, term()}
+  @callback clone_instant_voice(String.t(), list(map())) ::
+              {:ok, %{voice_id: String.t() | nil, name: String.t() | nil}} | {:error, term()}
   @callback list_history(map()) ::
               {:ok,
                %{items: list(map()), has_more: boolean(), last_history_item_id: String.t() | nil}}

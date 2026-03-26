@@ -21,6 +21,15 @@ defmodule PhoenixTts.ElevenLabs.EndpointCatalog do
         summary: "Lista vozes com busca, filtros e paginação."
       },
       %{
+        slug: "voices-clone-instant",
+        group: "Voices",
+        method: "POST",
+        path: "/v1/voices/add",
+        doc_url: "#{@docs_base}/api-reference/voices/add",
+        summary:
+          "Cria uma Instant Voice Clone a partir de uma ou mais amostras de áudio enviadas em multipart."
+      },
+      %{
         slug: "models-list",
         group: "Models",
         method: "GET",

@@ -127,6 +127,45 @@ defmodule PhoenixTts.ElevenLabs.ClientTest do
             ]} = Client.list_models()
   end
 
+  test "clone_instant_voice posts multipart audio samples and returns the new voice id", %{
+    bypass: bypass
+  } do
+    sample_path = Path.join(System.tmp_dir!(), "clone-sample-#{System.unique_integer([:positive])}.mp3")
+    File.write!(sample_path, "FAKE-AUDIO-SAMPLE")
+
+    on_exit(fn -> File.rm(sample_path) end)
+
+    Bypass.expect_once(bypass, "POST", "/v1/voices/add", fn conn ->
+      assert {"xi-api-key", "test-key"} in conn.req_headers
+      assert {"content-type", content_type} = List.keyfind(conn.req_headers, "content-type", 0)
+      assert String.starts_with?(content_type, "multipart/form-data;")
+
+      conn = Plug.Conn.fetch_query_params(conn)
+      conn = Plug.Parsers.call(conn, Plug.Parsers.init(parsers: [:multipart]))
+
+      assert conn.body_params["name"] == "My Voice Clone"
+
+      [%Plug.Upload{filename: "clone-sample-1.mp3", content_type: "audio/mpeg", path: upload_path}] =
+        List.wrap(conn.body_params["files"])
+
+      assert File.read!(upload_path) == "FAKE-AUDIO-SAMPLE"
+
+      Plug.Conn.resp(
+        conn,
+        200,
+        Jason.encode!(%{
+          "voice_id" => "voice_clone_123",
+          "name" => "My Voice Clone"
+        })
+      )
+    end)
+
+    assert {:ok, %{voice_id: "voice_clone_123", name: "My Voice Clone"}} =
+             Client.clone_instant_voice("My Voice Clone", [
+               %{path: sample_path, filename: "clone-sample-1.mp3", content_type: "audio/mpeg"}
+             ])
+  end
+
   test "list_history parses the generated items response", %{bypass: bypass} do
     Bypass.expect_once(bypass, "GET", "/v1/history", fn conn ->
       assert {"xi-api-key", "test-key"} in conn.req_headers

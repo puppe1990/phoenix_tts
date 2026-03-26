@@ -11,6 +11,14 @@ defmodule PhoenixTts.Audio do
     |> Repo.all()
   end
 
+  def change_clone_voice(attrs \\ %{}, sample_count \\ 0) do
+    {%{}, %{name: :string}}
+    |> Ecto.Changeset.cast(attrs, [:name])
+    |> Ecto.Changeset.validate_required([:name])
+    |> Ecto.Changeset.validate_length(:name, max: 100)
+    |> validate_sample_count(sample_count)
+  end
+
   def change_generation(attrs \\ %{}) do
     defaults = %{
       "text" => "",
@@ -62,6 +70,25 @@ defmodule PhoenixTts.Audio do
 
         {:error, reason} ->
           {:error, add_runtime_error(changeset, reason)}
+      end
+    else
+      {:error, changeset}
+    end
+  end
+
+  def clone_voice(attrs, files) do
+    changeset = change_clone_voice(attrs, length(files))
+
+    if changeset.valid? do
+      name = Ecto.Changeset.get_field(changeset, :name)
+
+      case elevenlabs_client().clone_instant_voice(name, files) do
+        {:ok, clone} ->
+          maybe_persist_cloned_voice(clone)
+          {:ok, clone}
+
+        {:error, reason} ->
+          {:error, Ecto.Changeset.add_error(changeset, :name, normalize_error(reason))}
       end
     else
       {:error, changeset}
@@ -184,6 +211,12 @@ defmodule PhoenixTts.Audio do
     Ecto.Changeset.add_error(changeset, :text, normalize_error(reason))
   end
 
+  defp validate_sample_count(changeset, sample_count) when sample_count > 0, do: changeset
+
+  defp validate_sample_count(changeset, _sample_count) do
+    Ecto.Changeset.add_error(changeset, :files, "selecione pelo menos um arquivo de audio")
+  end
+
   defp normalize_error(message) when is_binary(message), do: message
   defp normalize_error(other), do: "Erro ao gerar audio: #{inspect(other)}"
 
@@ -228,4 +261,27 @@ defmodule PhoenixTts.Audio do
       labels: voice.labels || %{}
     }
   end
+
+  defp maybe_persist_cloned_voice(%{voice_id: voice_id, name: name} = clone)
+       when is_binary(voice_id) and voice_id != "" and is_binary(name) and name != "" do
+    now = DateTime.utc_now() |> DateTime.truncate(:second)
+
+    Repo.insert_all(
+      Voice,
+      [
+        %{
+          voice_id: voice_id,
+          name: name,
+          category: Map.get(clone, :category, "cloned"),
+          labels: Map.get(clone, :labels, %{}),
+          inserted_at: now,
+          updated_at: now
+        }
+      ],
+      on_conflict: {:replace, [:name, :category, :labels, :updated_at]},
+      conflict_target: [:voice_id]
+    )
+  end
+
+  defp maybe_persist_cloned_voice(_clone), do: :ok
 end

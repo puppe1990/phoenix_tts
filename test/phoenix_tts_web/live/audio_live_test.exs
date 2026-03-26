@@ -57,6 +57,11 @@ defmodule PhoenixTtsWeb.AudioLiveTest do
        ]}
     end
 
+    def clone_instant_voice(name, files) do
+      send(self(), {:clone_instant_voice, name, files})
+      {:ok, %{voice_id: "voice_clone_123", name: name}}
+    end
+
     def list_history(params \\ %{}) do
       case Map.get(params, :start_after_history_item_id) || Map.get(params, "start_after_history_item_id") do
         "hist_remote_1" ->
@@ -186,6 +191,7 @@ defmodule PhoenixTtsWeb.AudioLiveTest do
     assert html =~ "Studio"
     assert html =~ "Recentes"
     assert html =~ "Configuração"
+    assert html =~ "Clone Voice"
     assert html =~ "0 / 5000 chars"
     assert html =~ "Idioma"
     assert html =~ "Português"
@@ -213,6 +219,47 @@ defmodule PhoenixTtsWeb.AudioLiveTest do
     refute html =~ "Navegação rápida"
   end
 
+  test "clone route renders the voice cloning form", %{conn: conn} do
+    {:ok, _view, html} = live(conn, ~p"/clone")
+
+    assert html =~ "Instant Voice Clone"
+    assert html =~ "Nome da voz"
+    assert html =~ "Amostras de áudio"
+    assert html =~ "Enviar para clonagem"
+    refute html =~ "voice-combobox-input"
+  end
+
+  test "clone route uploads samples and shows the new voice id", %{conn: conn} do
+    sample_path =
+      Path.join(System.tmp_dir!(), "live-clone-sample-#{System.unique_integer([:positive])}.mp3")
+
+    File.write!(sample_path, "VOICE-SAMPLE")
+
+    on_exit(fn -> File.rm(sample_path) end)
+
+    {:ok, view, _html} = live(conn, ~p"/clone")
+
+    upload =
+      file_input(view, "#clone-form", :samples, [
+        %{
+          last_modified: 1_743_000_000_000,
+          name: "sample-1.mp3",
+          content: File.read!(sample_path),
+          type: "audio/mpeg"
+        }
+      ])
+
+    assert render_upload(upload, "sample-1.mp3") =~ "sample-1.mp3"
+
+    html =
+      view
+      |> form("#clone-form", clone_voice: %{"name" => "Minha Voz Clone"})
+      |> render_submit()
+
+    assert html =~ "Voice clone criada com sucesso."
+    assert html =~ "voice_clone_123"
+  end
+
   test "recentes route focuses on remote and local history", %{conn: conn} do
     {:ok, _view, html} = live(conn, ~p"/recentes")
 
@@ -237,7 +284,7 @@ defmodule PhoenixTtsWeb.AudioLiveTest do
 
     _html =
       view
-      |> element("button[phx-click=\"select_combobox\"][phx-value-field=\"language\"][phx-value-value=\"en\"]")
+      |> element("button[phx-click=\"select_combobox\"][phx-value-field=\"language\"][phx-value-option=\"en\"]")
       |> render_click()
 
     params = %{

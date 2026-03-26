@@ -71,6 +71,30 @@ defmodule PhoenixTts.ElevenLabs.Client do
     end
   end
 
+  def clone_instant_voice(name, files) do
+    case api_key() do
+      nil ->
+        {:error, "Configure a variavel ELEVENLABS_API_KEY para clonar vozes."}
+
+      key ->
+        with {:ok, response} <-
+               Req.post(
+                 request(key),
+                 url: "/v1/voices/add",
+                 form_multipart: clone_voice_fields(name, files)
+               ),
+             {:ok, body} <- decode_json_body(response.body) do
+          {:ok,
+           %{
+             voice_id: body["voice_id"] || body["voiceId"],
+             name: body["name"]
+           }}
+        else
+          {:error, reason} -> {:error, reason}
+        end
+    end
+  end
+
   def list_history(params \\ %{}) do
     case api_key() do
       nil ->
@@ -141,12 +165,20 @@ defmodule PhoenixTts.ElevenLabs.Client do
   defp request(api_key) do
     Req.new(
       base_url: Application.fetch_env!(:phoenix_tts, :elevenlabs_base_url),
-      headers: [
-        {"xi-api-key", api_key},
-        {"content-type", "application/json"}
-      ],
+      headers: [{"xi-api-key", api_key}],
       receive_timeout: 15_000
     )
+  end
+
+  defp clone_voice_fields(name, files) do
+    [{"name", name}] ++
+      Enum.map(files, fn file ->
+        {"files",
+         {File.stream!(file.path, [], 2_048),
+          filename: file[:filename] || Path.basename(file.path),
+          content_type:
+            file[:content_type] || MIME.from_path(file[:filename] || Path.basename(file.path))}}
+      end)
   end
 
   defp decode_audio_response({:ok, %Req.Response{status: status, body: body, headers: headers}})
