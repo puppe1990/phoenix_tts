@@ -10,9 +10,14 @@ defmodule PhoenixTtsWeb.HistoryAudioControllerTest do
       {:error, "Item não encontrado na ElevenLabs."}
     end
 
-    def list_voices(_params \\ %{}), do: {:ok, %{voices: [], has_more: false, next_page_token: nil}}
+    def list_voices(_params \\ %{}),
+      do: {:ok, %{voices: [], has_more: false, next_page_token: nil}}
+
     def list_models, do: {:ok, []}
-    def list_history(_params \\ %{}), do: {:ok, %{items: [], has_more: false, last_history_item_id: nil}}
+
+    def list_history(_params \\ %{}),
+      do: {:ok, %{items: [], has_more: false, last_history_item_id: nil}}
+
     def synthesize_speech(_text, _opts), do: {:error, :not_implemented}
   end
 
@@ -33,14 +38,20 @@ defmodule PhoenixTtsWeb.HistoryAudioControllerTest do
 
     assert response(conn, 200) == "REMOTE-HISTORY-MP3"
     assert get_resp_header(conn, "content-type") == ["audio/mpeg; charset=utf-8"]
-    assert get_resp_header(conn, "content-disposition") == ["inline; filename=\"history-hist_remote_1.mp3\""]
+
+    assert get_resp_header(conn, "content-disposition") == [
+             "inline; filename=\"history-hist_remote_1.mp3\""
+           ]
   end
 
   test "serves history audio as attachment when download is requested", %{conn: conn} do
     conn = get(conn, ~p"/history/hist_remote_1/audio?download=1")
 
     assert response(conn, 200) == "REMOTE-HISTORY-MP3"
-    assert get_resp_header(conn, "content-disposition") == ["attachment; filename=\"history-hist_remote_1.mp3\""]
+
+    assert get_resp_header(conn, "content-disposition") == [
+             "attachment; filename=\"history-hist_remote_1.mp3\""
+           ]
   end
 
   test "redirects back with flash when history audio fails", %{conn: conn} do

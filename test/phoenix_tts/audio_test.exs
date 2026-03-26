@@ -126,7 +126,7 @@ defmodule PhoenixTts.AudioTest do
     :ok
   end
 
-  test "create_generation persists the audio metadata and writes the mp3 file" do
+  test "create_generation persists the audio metadata and embeds the mp3 bytes" do
     attrs = %{
       "text" => "Uma metáfora curta para destravar o começo do dia com calma e foco.",
       "voice_id" => "voice_br",
@@ -152,8 +152,8 @@ defmodule PhoenixTts.AudioTest do
     assert generation.remote_history_item_id == "hist_local_123"
     assert generation.character_count == 64
     assert generation.content_type == "audio/mpeg"
-    assert generation.audio_path =~ ~r/^generated\/.+\.mp3$/
-    assert File.read!(Path.join(Audio.storage_dir(), generation.audio_path)) == "FAKE-MP3-DATA"
+    assert generation.audio_binary == "FAKE-MP3-DATA"
+    assert generation.audio_path =~ ~r/^embedded:\/\/.+\.mp3$/
 
     generation_id = generation.id
     assert [%Generation{id: ^generation_id}] = Audio.list_generations()
@@ -203,8 +203,7 @@ defmodule PhoenixTts.AudioTest do
     assert generation.request_id == "req_local_123, req_local_123"
     assert generation.remote_history_item_id == "hist_local_123, hist_local_123"
 
-    assert File.read!(Path.join(Audio.storage_dir(), generation.audio_path)) ==
-             "FAKE-MP3-DATAFAKE-MP3-DATA"
+    assert generation.audio_binary == "FAKE-MP3-DATAFAKE-MP3-DATA"
   end
 
   test "create_generation turns timeout into an actionable runtime error" do

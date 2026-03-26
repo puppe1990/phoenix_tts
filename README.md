@@ -1,6 +1,6 @@
 # PhoenixTts
 
-Aplicação Phoenix + LiveView para gerar áudios na ElevenLabs, sincronizar vozes no SQLite e armazenar os arquivos MP3 localmente em `priv/static/generated`.
+Aplicação Phoenix + LiveView para gerar áudios na ElevenLabs, sincronizar vozes no banco e armazenar os arquivos MP3 junto com os metadados da geração.
 
 ![PhoenixTts Studio](priv/static/images/phoenix-tts-studio.png)
 
@@ -18,7 +18,8 @@ Aplicação Phoenix + LiveView para gerar áudios na ElevenLabs, sincronizar voz
 - Phoenix `1.8.5`
 - LiveView `1.1.x`
 - Tailwind CSS `4.x`
-- SQLite via `ecto_sqlite3`
+- SQLite via `ecto_sqlite3` em desenvolvimento/teste
+- PostgreSQL via `postgrex` em produção
 
 ## Setup
 
@@ -90,4 +91,29 @@ O fluxo foi implementado em TDD. Para rodar a suíte:
 ```bash
 mix test
 mix precommit
+```
+
+## Deploy no Gigalixir
+
+O projeto está preparado para rodar no modelo recomendado de Phoenix Releases do Gigalixir:
+
+- `config/runtime.exs` lê `DATABASE_URL`, `SECRET_KEY_BASE`, `PHX_HOST`, `PORT`, `POOL_SIZE` e `ELEVENLABS_API_KEY`;
+- em produção o `Repo` usa PostgreSQL;
+- os áudios gerados ficam persistidos no banco, evitando dependência do disco efêmero do app.
+
+Fluxo resumido:
+
+```bash
+mix deps.get
+mix ecto.migrate
+mix test
+
+brew install gigalixir
+gigalixir signup
+gigalixir login
+gigalixir create
+gigalixir pg:create --free
+gigalixir config:set PHX_HOST=<seu-app>.gigalixirapp.com SECRET_KEY_BASE=$(mix phx.gen.secret) PHX_SERVER=true POOL_SIZE=2 ELEVENLABS_API_KEY=...
+git push gigalixir main
+gigalixir ps:migrate
 ```

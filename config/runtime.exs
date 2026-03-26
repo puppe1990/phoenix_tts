@@ -50,6 +50,18 @@ if System.get_env("PHX_SERVER") do
   config :phoenix_tts, PhoenixTtsWeb.Endpoint, server: true
 end
 
+ipv6_socket_options =
+  case System.get_env("ECTO_IPV6", "true") do
+    value when value in ["true", "1"] -> [:inet6]
+    _ -> []
+  end
+
+database_ssl =
+  case System.get_env("DATABASE_SSL", "true") do
+    value when value in ["true", "1"] -> true
+    _ -> false
+  end
+
 config :phoenix_tts, PhoenixTtsWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
@@ -65,16 +77,18 @@ config :phoenix_tts,
       Path.expand("../priv/static/generated", __DIR__)
 
 if config_env() == :prod do
-  database_path =
-    System.get_env("DATABASE_PATH") ||
+  database_url =
+    System.get_env("DATABASE_URL") ||
       raise """
-      environment variable DATABASE_PATH is missing.
-      For example: /etc/phoenix_tts/phoenix_tts.db
+      environment variable DATABASE_URL is missing.
+      Use the database provisioned by Gigalixir or set a postgres:// URL manually.
       """
 
   config :phoenix_tts, PhoenixTts.Repo,
-    database: database_path,
-    pool_size: String.to_integer(System.get_env("POOL_SIZE") || "5")
+    url: database_url,
+    pool_size: String.to_integer(System.get_env("POOL_SIZE") || "5"),
+    socket_options: ipv6_socket_options,
+    ssl: database_ssl
 
   # The secret key base is used to sign/encrypt cookies and other secrets.
   # A default value is used in config/dev.exs and config/test.exs but you

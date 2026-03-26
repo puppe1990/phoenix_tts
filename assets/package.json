@@ -1,0 +1,7 @@
+{
+  "name": "phoenix_tts-assets",
+  "private": true,
+  "scripts": {
+    "deploy": "cd .. && mix assets.deploy"
+  }
+}

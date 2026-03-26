@@ -133,7 +133,10 @@ defmodule PhoenixTts.ElevenLabs.Client do
 
       key ->
         request(key)
-        |> Req.get(url: "/v1/history/#{history_item_id}/audio", headers: [{"accept", "audio/mpeg"}])
+        |> Req.get(
+          url: "/v1/history/#{history_item_id}/audio",
+          headers: [{"accept", "audio/mpeg"}]
+        )
         |> decode_history_audio_response()
     end
   end
@@ -210,7 +213,9 @@ defmodule PhoenixTts.ElevenLabs.Client do
     {:error, Exception.message(exception)}
   end
 
-  defp decode_history_audio_response({:ok, %Req.Response{status: status, body: body, headers: headers}})
+  defp decode_history_audio_response(
+         {:ok, %Req.Response{status: status, body: body, headers: headers}}
+       )
        when status in 200..299 do
     {:ok,
      %{

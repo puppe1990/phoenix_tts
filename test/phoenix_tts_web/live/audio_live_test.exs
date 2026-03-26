@@ -276,7 +276,8 @@ defmodule PhoenixTtsWeb.AudioLiveTest do
     assert html =~ "4,0 credits"
     assert html =~ "8.746,0 credits"
 
-    _ = render_click(view, "select_combobox", %{"field" => "model", "option" => "eleven_flash_v2_5"})
+    _ =
+      render_click(view, "select_combobox", %{"field" => "model", "option" => "eleven_flash_v2_5"})
 
     html = render(view)
 

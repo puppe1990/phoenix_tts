@@ -27,6 +27,7 @@ phoenix_tts-*.tar
 
 # Ignore assets that are produced by build tools.
 /priv/static/assets/
+/priv/static/generated/
 
 # Ignore digested assets cache.
 /priv/static/cache_manifest.json

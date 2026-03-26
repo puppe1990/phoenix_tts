@@ -4,6 +4,7 @@ defmodule PhoenixTts.Audio.Generation do
 
   schema "audio_generations" do
     field :audio_path, :string
+    field :audio_binary, :binary
     field :character_count, :integer
     field :content_type, :string
     field :language_code, :string
@@ -36,6 +37,7 @@ defmodule PhoenixTts.Audio.Generation do
       :output_format,
       :language_code,
       :audio_path,
+      :audio_binary,
       :character_count,
       :content_type,
       :request_id,
@@ -46,9 +48,32 @@ defmodule PhoenixTts.Audio.Generation do
       :voice_id,
       :model_id,
       :output_format,
-      :audio_path,
       :character_count,
       :content_type
     ])
+    |> ensure_embedded_audio_path()
+    |> validate_audio_source_present()
+  end
+
+  defp ensure_embedded_audio_path(changeset) do
+    audio_path = get_field(changeset, :audio_path)
+    audio_binary = get_field(changeset, :audio_binary)
+
+    if is_binary(audio_binary) and !is_binary(audio_path) do
+      put_change(changeset, :audio_path, "embedded://#{Ecto.UUID.generate()}.mp3")
+    else
+      changeset
+    end
+  end
+
+  defp validate_audio_source_present(changeset) do
+    audio_path = get_field(changeset, :audio_path)
+    audio_binary = get_field(changeset, :audio_binary)
+
+    if is_binary(audio_binary) or (is_binary(audio_path) and audio_path != "") do
+      changeset
+    else
+      add_error(changeset, :audio_binary, "audio gerado nao foi persistido")
+    end
   end
 end

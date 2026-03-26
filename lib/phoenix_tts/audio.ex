@@ -58,7 +58,7 @@ defmodule PhoenixTts.Audio do
       ]
 
       with {:ok, responses} <- synthesize_text(params.text, request_opts),
-           {:ok, audio_path} <- persist_audio(merge_audio_chunks(responses)),
+           audio_binary = merge_audio_chunks(responses),
            {:ok, generation} <-
              insert_generation(
                Map.merge(params, %{
@@ -66,7 +66,7 @@ defmodule PhoenixTts.Audio do
                  request_id: aggregate_header_value(responses, :request_id),
                  remote_history_item_id: aggregate_header_value(responses, :history_item_id)
                }),
-               audio_path,
+               audio_binary,
                content_type_for(responses)
              ) do
         {:ok, generation}
@@ -170,12 +170,12 @@ defmodule PhoenixTts.Audio do
 
   def endpoint_catalog, do: EndpointCatalog.list()
 
-  def storage_dir do
-    Application.fetch_env!(:phoenix_tts, :audio_storage_dir)
-  end
-
   def api_key_configured? do
     Application.get_env(:phoenix_tts, :elevenlabs_api_key) not in [nil, ""]
+  end
+
+  def storage_dir do
+    Application.fetch_env!(:phoenix_tts, :audio_storage_dir)
   end
 
   def default_output_format do
@@ -261,7 +261,7 @@ defmodule PhoenixTts.Audio do
   defp content_type_for([first | _]), do: first.content_type || "audio/mpeg"
   defp content_type_for([]), do: "audio/mpeg"
 
-  defp insert_generation(params, audio_path, content_type) do
+  defp insert_generation(params, audio_binary, content_type) do
     %Generation{}
     |> Generation.persistence_changeset(%{
       text: params.text,
@@ -269,27 +269,13 @@ defmodule PhoenixTts.Audio do
       model_id: params.model_id,
       output_format: params.output_format,
       language_code: blank_to_nil(params.language_code),
-      audio_path: audio_path,
+      audio_binary: audio_binary,
       character_count: params.character_count || String.length(params.text),
       content_type: content_type,
       request_id: params.request_id,
       remote_history_item_id: params.remote_history_item_id
     })
     |> Repo.insert()
-  end
-
-  defp persist_audio(binary) do
-    relative_path = Path.join("generated", "#{Ecto.UUID.generate()}.mp3")
-    absolute_path = Path.join(storage_dir(), relative_path)
-
-    absolute_path
-    |> Path.dirname()
-    |> File.mkdir_p()
-
-    case File.write(absolute_path, binary, [:binary]) do
-      :ok -> {:ok, relative_path}
-      {:error, reason} -> {:error, "Nao foi possivel salvar o mp3: #{inspect(reason)}"}
-    end
   end
 
   defp add_runtime_error(changeset, reason) do

@@ -340,19 +340,25 @@ defmodule PhoenixTtsWeb.AudioLive do
 
               <div :if={@subscription} class="mt-6 grid gap-4 sm:grid-cols-3">
                 <div class="rounded-[1.4rem] border border-white/10 bg-white/[0.03] p-4">
-                  <p class="text-[11px] uppercase tracking-[0.2em] text-white/35">credits restantes</p>
+                  <p class="text-[11px] uppercase tracking-[0.2em] text-white/35">
+                    credits restantes
+                  </p>
                   <p class="mt-2 text-3xl font-semibold text-[#7fd6e8]">
                     {format_number(@subscription.remaining_credits)}
                   </p>
                 </div>
                 <div class="rounded-[1.4rem] border border-white/10 bg-white/[0.03] p-4">
-                  <p class="text-[11px] uppercase tracking-[0.2em] text-white/35">credits consumidos</p>
+                  <p class="text-[11px] uppercase tracking-[0.2em] text-white/35">
+                    credits consumidos
+                  </p>
                   <p class="mt-2 text-3xl font-semibold text-[#f7f1e8]">
                     {format_number(@subscription.used_credits)}
                   </p>
                 </div>
                 <div class="rounded-[1.4rem] border border-white/10 bg-white/[0.03] p-4">
-                  <p class="text-[11px] uppercase tracking-[0.2em] text-white/35">limite de credits</p>
+                  <p class="text-[11px] uppercase tracking-[0.2em] text-white/35">
+                    limite de credits
+                  </p>
                   <p class="mt-2 text-3xl font-semibold text-[#f7f1e8]">
                     {format_number(@subscription.total_credits)}
                   </p>
@@ -482,7 +488,11 @@ defmodule PhoenixTtsWeb.AudioLive do
                               estimativa de gasto
                             </p>
                             <p class="mt-2 text-lg font-semibold text-[#f7f1e8]">
-                              {estimated_credit_spend(@form_attrs["text"], @form_attrs["model_id"], @models)} credits
+                              {estimated_credit_spend(
+                                @form_attrs["text"],
+                                @form_attrs["model_id"],
+                                @models
+                              )} credits
                             </p>
                           </div>
 
@@ -491,7 +501,12 @@ defmodule PhoenixTtsWeb.AudioLive do
                               saldo após gerar
                             </p>
                             <p class="mt-2 text-lg font-semibold text-[#7fd6e8]">
-                              {remaining_after_generation(@subscription, @form_attrs["text"], @form_attrs["model_id"], @models)} credits
+                              {remaining_after_generation(
+                                @subscription,
+                                @form_attrs["text"],
+                                @form_attrs["model_id"],
+                                @models
+                              )} credits
                             </p>
                           </div>
                         </div>
