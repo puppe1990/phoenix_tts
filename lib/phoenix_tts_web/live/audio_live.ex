@@ -34,6 +34,7 @@ defmodule PhoenixTtsWeb.AudioLive do
      |> assign(:clone_result, nil)
      |> assign(:max_chars, @max_chars)
      |> assign(:api_key_configured, Audio.api_key_configured?())
+     |> assign(:recent_voice_search, "")
      |> assign(:voice_box_open, false)
      |> assign(:model_box_open, false)
      |> assign(:language_box_open, false)
@@ -135,6 +136,10 @@ defmodule PhoenixTtsWeb.AudioLive do
      |> assign(:form_feedback, nil)
      |> assign(:voice_box_open, false)
      |> assign_form(attrs)}
+  end
+
+  def handle_event("filter_recent_voices", %{"value" => value}, socket) do
+    {:noreply, assign(socket, :recent_voice_search, value)}
   end
 
   def handle_event("open_combobox", %{"field" => field}, socket) do
@@ -716,6 +721,22 @@ defmodule PhoenixTtsWeb.AudioLive do
                     {length(@voices)} vozes
                   </div>
                 </div>
+
+                <div class="mt-4">
+                  <label for="recent-voice-search" class="mb-1 block text-sm font-medium text-[#f7f1e8]">
+                    Buscar voz
+                  </label>
+                  <input
+                    id="recent-voice-search"
+                    type="text"
+                    value={@recent_voice_search}
+                    phx-keyup="filter_recent_voices"
+                    phx-debounce="150"
+                    placeholder="Filtrar por nome, accent ou voice id"
+                    autocomplete="off"
+                    class="w-full rounded-[1.1rem] border border-white/10 bg-[#111b2f] px-4 py-3 text-sm text-[#f7f1e8] placeholder:text-white/30"
+                  />
+                </div>
               </div>
 
               <div class="max-h-[42rem] space-y-3 overflow-y-auto px-5 py-5 sm:px-6">
@@ -727,7 +748,7 @@ defmodule PhoenixTtsWeb.AudioLive do
                 </div>
 
                 <button
-                  :for={voice <- matching_voices(@voices, active_voice_query(@voice_query, @voices, @form_attrs["voice_id"]))}
+                  :for={voice <- matching_voices(@voices, @recent_voice_search)}
                   type="button"
                   phx-click="select_voice"
                   phx-value-voice_id={voice.id}
@@ -755,6 +776,13 @@ defmodule PhoenixTtsWeb.AudioLive do
                     </span>
                   </div>
                 </button>
+
+                <div
+                  :if={@voices != [] and matching_voices(@voices, @recent_voice_search) == []}
+                  class="rounded-[1.4rem] border border-dashed border-white/10 p-4 text-sm text-white/45"
+                >
+                  Nenhuma voz encontrada para esse filtro.
+                </div>
               </div>
             </aside>
 

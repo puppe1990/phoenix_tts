@@ -353,6 +353,22 @@ defmodule PhoenixTtsWeb.AudioLiveTest do
     refute html =~ "phx-value-voice_id=\"voice_relax\" class=\"block w-full rounded-[1.4rem] border p-4 text-left transition border-white/10"
   end
 
+  test "recent voices search filters the quick choice list", %{conn: conn} do
+    {:ok, view, html} = live(conn, ~p"/recentes")
+
+    assert html =~ "Narradora BR"
+    assert html =~ "Voz Relax"
+
+    html =
+      view
+      |> element("#recent-voice-search")
+      |> render_keyup(%{"value" => "relax"})
+
+    assert html =~ "value=\"relax\""
+    assert html =~ "Voz Relax"
+    refute html =~ "Narradora BR"
+  end
+
   test "combobox inputs filter voice, model and language options", %{conn: conn} do
     {:ok, view, html} = live(conn, ~p"/")
 
