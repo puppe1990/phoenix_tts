@@ -330,7 +330,7 @@ defmodule PhoenixTtsWeb.AudioLive do
                     Configuração
                   </p>
                   <h2 class="mt-2 text-2xl font-semibold text-[#f7f1e8]">
-                    Tokens restantes
+                    Credits restantes
                   </h2>
                 </div>
                 <div class="rounded-full border border-white/10 px-3 py-1 text-[11px] uppercase tracking-[0.2em] text-white/50">
@@ -340,21 +340,21 @@ defmodule PhoenixTtsWeb.AudioLive do
 
               <div :if={@subscription} class="mt-6 grid gap-4 sm:grid-cols-3">
                 <div class="rounded-[1.4rem] border border-white/10 bg-white/[0.03] p-4">
-                  <p class="text-[11px] uppercase tracking-[0.2em] text-white/35">restantes</p>
+                  <p class="text-[11px] uppercase tracking-[0.2em] text-white/35">credits restantes</p>
                   <p class="mt-2 text-3xl font-semibold text-[#7fd6e8]">
-                    {format_number(@subscription.remaining_tokens)}
+                    {format_number(@subscription.remaining_credits)}
                   </p>
                 </div>
                 <div class="rounded-[1.4rem] border border-white/10 bg-white/[0.03] p-4">
-                  <p class="text-[11px] uppercase tracking-[0.2em] text-white/35">consumidos</p>
+                  <p class="text-[11px] uppercase tracking-[0.2em] text-white/35">credits consumidos</p>
                   <p class="mt-2 text-3xl font-semibold text-[#f7f1e8]">
-                    {format_number(@subscription.used_tokens)}
+                    {format_number(@subscription.used_credits)}
                   </p>
                 </div>
                 <div class="rounded-[1.4rem] border border-white/10 bg-white/[0.03] p-4">
-                  <p class="text-[11px] uppercase tracking-[0.2em] text-white/35">limite</p>
+                  <p class="text-[11px] uppercase tracking-[0.2em] text-white/35">limite de credits</p>
                   <p class="mt-2 text-3xl font-semibold text-[#f7f1e8]">
-                    {format_number(@subscription.total_tokens)}
+                    {format_number(@subscription.total_credits)}
                   </p>
                 </div>
               </div>
@@ -400,6 +400,9 @@ defmodule PhoenixTtsWeb.AudioLive do
                   <div class="flex flex-wrap gap-3 text-xs uppercase tracking-[0.22em] text-white/42">
                     <span class="rounded-full border border-white/10 px-3 py-2">
                       {character_count(@form_attrs["text"])} / {@max_chars} chars
+                    </span>
+                    <span class="rounded-full border border-white/10 px-3 py-2">
+                      {estimated_credit_spend(@form_attrs["text"], @form_attrs["model_id"], @models)} credits
                     </span>
                     <span class="rounded-full border border-white/10 px-3 py-2">
                       {character_usage_label(@form_attrs["text"])}
@@ -479,7 +482,7 @@ defmodule PhoenixTtsWeb.AudioLive do
                               estimativa de gasto
                             </p>
                             <p class="mt-2 text-lg font-semibold text-[#f7f1e8]">
-                              {estimated_token_spend(@form_attrs["text"])} tokens
+                              {estimated_credit_spend(@form_attrs["text"], @form_attrs["model_id"], @models)} credits
                             </p>
                           </div>
 
@@ -488,13 +491,13 @@ defmodule PhoenixTtsWeb.AudioLive do
                               saldo após gerar
                             </p>
                             <p class="mt-2 text-lg font-semibold text-[#7fd6e8]">
-                              {remaining_after_generation(@subscription, @form_attrs["text"])} tokens
+                              {remaining_after_generation(@subscription, @form_attrs["text"], @form_attrs["model_id"], @models)} credits
                             </p>
                           </div>
                         </div>
 
                         <p class="mt-3 text-sm leading-6 text-white/55">
-                          Estimativa baseada no tamanho do texto enviado para a ElevenLabs. O custo real pode variar conforme a resposta da conta.
+                          Estimativa baseada no tamanho do texto e no modelo selecionado. Flash e Turbo consomem menos credits por caractere em planos self-serve; o custo real pode variar conforme a conta e a voz usada.
                         </p>
                       </div>
                     </div>
@@ -1478,6 +1481,15 @@ defmodule PhoenixTtsWeb.AudioLive do
     |> String.reverse()
   end
 
+  defp format_number(number) when is_float(number) do
+    [integer_part, decimal_part] =
+      number
+      |> :erlang.float_to_binary(decimals: 1)
+      |> String.split(".")
+
+    format_number(String.to_integer(integer_part)) <> "," <> decimal_part
+  end
+
   defp format_number(_), do: "-"
 
   defp reset_label(nil), do: "sem data"
@@ -1550,20 +1562,41 @@ defmodule PhoenixTtsWeb.AudioLive do
     end
   end
 
-  defp estimated_token_spend(text) do
+  defp estimated_credit_spend(text, model_id, models) do
     text
-    |> character_count()
+    |> estimated_credits(model_id, models)
     |> format_number()
   end
 
-  defp remaining_after_generation(subscription, text) do
+  defp remaining_after_generation(subscription, text, model_id, models) do
     remaining =
-      max((subscription.remaining_tokens || 0) - character_count(text), 0)
+      max((subscription.remaining_credits || 0) - estimated_credits(text, model_id, models), 0.0)
 
     format_number(remaining)
   end
 
   defp character_count(text), do: text |> to_string() |> String.length()
+
+  defp estimated_credits(text, model_id, models) do
+    character_count(text) * credit_multiplier(model_id, models)
+  end
+
+  defp credit_multiplier(model_id, models) do
+    case Enum.find(models, &(&1.id == model_id)) do
+      %{id: id, name: name} ->
+        if flash_or_turbo_model?(id) or flash_or_turbo_model?(name), do: 0.5, else: 1.0
+
+      _ ->
+        if flash_or_turbo_model?(model_id), do: 0.5, else: 1.0
+    end
+  end
+
+  defp flash_or_turbo_model?(value) when is_binary(value) do
+    normalized = String.downcase(value)
+    String.contains?(normalized, "flash") or String.contains?(normalized, "turbo")
+  end
+
+  defp flash_or_turbo_model?(_), do: false
 
   defp character_usage_label(text) do
     ratio = usage_ratio(text)

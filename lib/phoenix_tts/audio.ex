@@ -157,9 +157,9 @@ defmodule PhoenixTts.Audio do
          %{
            tier: subscription.tier,
            status: subscription.status,
-           used_tokens: used,
-           total_tokens: limit,
-           remaining_tokens: max(limit - used, 0),
+           used_credits: used,
+           total_credits: limit,
+           remaining_credits: max(limit - used, 0),
            next_reset_unix: subscription.next_character_count_reset_unix
          }}
 

@@ -252,7 +252,7 @@ defmodule PhoenixTts.AudioTest do
     assert {:ok, %{items: [%{history_item_id: "hist_remote_2"}]}} =
              Audio.remote_history_page(%{start_after_history_item_id: "hist_remote_1"})
 
-    assert {:ok, %{remaining_tokens: 8_750, total_tokens: 10_000, used_tokens: 1_250}} =
+    assert {:ok, %{remaining_credits: 8_750, total_credits: 10_000, used_credits: 1_250}} =
              Audio.subscription_overview()
 
     endpoint_slugs =

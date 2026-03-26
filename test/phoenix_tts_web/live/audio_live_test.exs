@@ -237,6 +237,7 @@ defmodule PhoenixTtsWeb.AudioLiveTest do
     assert html =~ "language-combobox-input"
     assert html =~ "estimativa de gasto"
     assert html =~ "saldo após gerar"
+    assert html =~ "0,0 credits"
     refute html =~ "Tokens restantes"
     refute html =~ "Itens recentes da ElevenLabs"
     refute html =~ "Escolha rápida"
@@ -248,12 +249,39 @@ defmodule PhoenixTtsWeb.AudioLiveTest do
     {:ok, _view, html} = live(conn, ~p"/config")
 
     assert html =~ "Configuração"
-    assert html =~ "Tokens restantes"
+    assert html =~ "Credits restantes"
     assert html =~ "Plano CREATOR"
     assert html =~ "8.750"
     refute html =~ "voice-combobox-input"
     refute html =~ "Itens recentes da ElevenLabs"
     refute html =~ "Navegação rápida"
+  end
+
+  test "estimates credits based on the selected model", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/")
+
+    html =
+      view
+      |> form("#tts-form",
+        audio_generation: %{
+          "text" => "abcd",
+          "voice_id" => "voice_br",
+          "model_id" => "eleven_multilingual_v2",
+          "output_format" => "mp3_44100_128",
+          "language_code" => "pt"
+        }
+      )
+      |> render_change()
+
+    assert html =~ "4,0 credits"
+    assert html =~ "8.746,0 credits"
+
+    _ = render_click(view, "select_combobox", %{"field" => "model", "option" => "eleven_flash_v2_5"})
+
+    html = render(view)
+
+    assert html =~ "2,0 credits"
+    assert html =~ "8.748,0 credits"
   end
 
   test "clone route renders the voice cloning form", %{conn: conn} do
