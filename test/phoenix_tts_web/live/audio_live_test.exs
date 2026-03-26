@@ -63,7 +63,8 @@ defmodule PhoenixTtsWeb.AudioLiveTest do
     end
 
     def list_history(params \\ %{}) do
-      case Map.get(params, :start_after_history_item_id) || Map.get(params, "start_after_history_item_id") do
+      case Map.get(params, :start_after_history_item_id) ||
+             Map.get(params, "start_after_history_item_id") do
         "hist_remote_1" ->
           {:ok,
            %{
@@ -166,12 +167,35 @@ defmodule PhoenixTtsWeb.AudioLiveTest do
     end
   end
 
+  defmodule FakeElevenLabsClientSlow do
+    def synthesize_speech(text, opts) do
+      Process.sleep(50)
+      FakeElevenLabsClient.synthesize_speech(text, opts)
+    end
+
+    def list_voices(params \\ %{}), do: FakeElevenLabsClient.list_voices(params)
+    def list_models, do: FakeElevenLabsClient.list_models()
+
+    def clone_instant_voice(name, files),
+      do: FakeElevenLabsClient.clone_instant_voice(name, files)
+
+    def list_history(params \\ %{}), do: FakeElevenLabsClient.list_history(params)
+
+    def get_history_audio(history_item_id),
+      do: FakeElevenLabsClient.get_history_audio(history_item_id)
+
+    def get_subscription, do: FakeElevenLabsClient.get_subscription()
+  end
+
   defmodule FakeElevenLabsClientCloneFailure do
     def synthesize_speech(text, opts), do: FakeElevenLabsClient.synthesize_speech(text, opts)
     def list_voices(params \\ %{}), do: FakeElevenLabsClient.list_voices(params)
     def list_models, do: FakeElevenLabsClient.list_models()
     def list_history(params \\ %{}), do: FakeElevenLabsClient.list_history(params)
-    def get_history_audio(history_item_id), do: FakeElevenLabsClient.get_history_audio(history_item_id)
+
+    def get_history_audio(history_item_id),
+      do: FakeElevenLabsClient.get_history_audio(history_item_id)
+
     def get_subscription, do: FakeElevenLabsClient.get_subscription()
 
     def clone_instant_voice(_name, _files) do
@@ -217,7 +241,7 @@ defmodule PhoenixTtsWeb.AudioLiveTest do
     refute html =~ "Itens recentes da ElevenLabs"
     refute html =~ "Escolha rápida"
     refute html =~ "Últimos áudios"
-    assert html =~ "phx-disable-with=\"Gerando áudio...\""
+    assert html =~ "phx-disable-with=\"Iniciando...\""
   end
 
   test "config route renders the account balance section", %{conn: conn} do
@@ -273,11 +297,16 @@ defmodule PhoenixTtsWeb.AudioLiveTest do
     assert html =~ "voice_clone_123"
   end
 
-  test "clone route keeps form state and samples visible when ElevenLabs returns an error", %{conn: conn} do
+  test "clone route keeps form state and samples visible when ElevenLabs returns an error", %{
+    conn: conn
+  } do
     Application.put_env(:phoenix_tts, :elevenlabs_client, FakeElevenLabsClientCloneFailure)
 
     sample_path =
-      Path.join(System.tmp_dir!(), "live-clone-error-sample-#{System.unique_integer([:positive])}.ogg")
+      Path.join(
+        System.tmp_dir!(),
+        "live-clone-error-sample-#{System.unique_integer([:positive])}.ogg"
+      )
 
     File.write!(sample_path, "VOICE-SAMPLE")
 
@@ -322,7 +351,9 @@ defmodule PhoenixTtsWeb.AudioLiveTest do
     refute html =~ "Tokens restantes"
   end
 
-  test "submitting the form creates an audio entry and keeps the studio focused on generation", %{conn: conn} do
+  test "submitting the form creates an audio entry and keeps the studio focused on generation", %{
+    conn: conn
+  } do
     {:ok, view, _html} = live(conn, ~p"/")
 
     _html =
@@ -332,7 +363,9 @@ defmodule PhoenixTtsWeb.AudioLiveTest do
 
     _html =
       view
-      |> element("button[phx-click=\"select_combobox\"][phx-value-field=\"language\"][phx-value-option=\"en\"]")
+      |> element(
+        "button[phx-click=\"select_combobox\"][phx-value-field=\"language\"][phx-value-option=\"en\"]"
+      )
       |> render_click()
 
     params = %{
@@ -343,10 +376,12 @@ defmodule PhoenixTtsWeb.AudioLiveTest do
       "language_code" => "en"
     }
 
-    html =
+    _pending_html =
       view
       |> form("#tts-form", audio_generation: params)
       |> render_submit()
+
+    html = render_async(view)
 
     assert html =~ "Áudio gerado com sucesso."
     assert html =~ "Narradora BR"
@@ -354,6 +389,73 @@ defmodule PhoenixTtsWeb.AudioLiveTest do
     assert html =~ "última configuração foi mantida"
     refute html =~ "Últimos áudios"
     refute html =~ "audio-player"
+  end
+
+  test "studio explains and accepts texts that will be split into two requests", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/")
+
+    long_text =
+      String.duplicate("Bloco de texto com pausa natural. ", 220)
+      |> String.slice(0, 6_670)
+
+    html =
+      view
+      |> form("#tts-form",
+        audio_generation: %{
+          "text" => long_text,
+          "voice_id" => "voice_br",
+          "model_id" => "eleven_multilingual_v2",
+          "output_format" => "mp3_44100_128",
+          "language_code" => "pt"
+        }
+      )
+      |> render_change()
+
+    assert html =~ "2 chamadas"
+    assert html =~ "O Phoenix TTS divide em 2 chamadas separadas."
+
+    _pending_html =
+      view
+      |> form("#tts-form",
+        audio_generation: %{
+          "text" => long_text,
+          "voice_id" => "voice_br",
+          "model_id" => "eleven_multilingual_v2",
+          "output_format" => "mp3_44100_128",
+          "language_code" => "pt"
+        }
+      )
+      |> render_submit()
+
+    html = render_async(view, 500)
+
+    assert html =~ "Áudio gerado com sucesso."
+  end
+
+  test "submitting generation runs asynchronously and shows pending state first", %{conn: conn} do
+    Application.put_env(:phoenix_tts, :elevenlabs_client, FakeElevenLabsClientSlow)
+
+    {:ok, view, _html} = live(conn, ~p"/")
+
+    pending_html =
+      view
+      |> form("#tts-form",
+        audio_generation: %{
+          "text" => "Texto para validar o fluxo assíncrono do LiveView.",
+          "voice_id" => "voice_br",
+          "model_id" => "eleven_multilingual_v2",
+          "output_format" => "mp3_44100_128",
+          "language_code" => "pt"
+        }
+      )
+      |> render_submit()
+
+    assert pending_html =~ "Gerando áudio em background. Aguarde a finalização."
+    assert pending_html =~ "Gerando áudio..."
+
+    html = render_async(view)
+
+    assert html =~ "Áudio gerado com sucesso."
   end
 
   test "renders remote history items even when text is nil", %{conn: conn} do
@@ -398,7 +500,9 @@ defmodule PhoenixTtsWeb.AudioLiveTest do
 
     assert html =~ "Voz Relax"
     assert html =~ "voice_relax"
-    refute html =~ "phx-value-voice_id=\"voice_relax\" class=\"block w-full rounded-[1.4rem] border p-4 text-left transition border-white/10"
+
+    refute html =~
+             "phx-value-voice_id=\"voice_relax\" class=\"block w-full rounded-[1.4rem] border p-4 text-left transition border-white/10"
   end
 
   test "recent voices search filters the quick choice list", %{conn: conn} do
@@ -447,7 +551,9 @@ defmodule PhoenixTtsWeb.AudioLiveTest do
 
     assert html =~ "value=\"ja\""
     assert html =~ "Japonês"
-    refute html =~ "Português</div><div class=\"mt-1 text-xs uppercase tracking-[0.14em] text-white/35\">pt"
+
+    refute html =~
+             "Português</div><div class=\"mt-1 text-xs uppercase tracking-[0.14em] text-white/35\">pt"
   end
 
   test "combobox does not render fallback text as the input value", %{conn: conn} do

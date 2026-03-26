@@ -6,6 +6,9 @@ defmodule PhoenixTts.Audio do
   alias PhoenixTts.ElevenLabs.EndpointCatalog
   alias PhoenixTts.Repo
 
+  @practical_chunk_size 5_000
+  @max_split_chunks 2
+
   def list_generations do
     from(g in Generation, order_by: [desc: g.inserted_at, desc: g.id])
     |> Repo.all()
@@ -46,24 +49,25 @@ defmodule PhoenixTts.Audio do
     if changeset.valid? do
       params = Ecto.Changeset.apply_changes(changeset)
 
-      with {:ok, response} <-
-             elevenlabs_client().synthesize_speech(params.text,
-               voice_id: params.voice_id,
-               model_id: params.model_id,
-               output_format: params.output_format,
-               language_code: blank_to_nil(params.language_code),
-               voice_settings: %{stability: 0.45, similarity_boost: 0.8}
-             ),
-           {:ok, audio_path} <- persist_audio(response.audio),
+      request_opts = [
+        voice_id: params.voice_id,
+        model_id: params.model_id,
+        output_format: params.output_format,
+        language_code: blank_to_nil(params.language_code),
+        voice_settings: %{stability: 0.45, similarity_boost: 0.8}
+      ]
+
+      with {:ok, responses} <- synthesize_text(params.text, request_opts),
+           {:ok, audio_path} <- persist_audio(merge_audio_chunks(responses)),
            {:ok, generation} <-
              insert_generation(
                Map.merge(params, %{
-                 character_count: response.character_count,
-                 request_id: response.request_id,
-                 remote_history_item_id: response.history_item_id
+                 character_count: aggregate_character_count(responses, params.text),
+                 request_id: aggregate_header_value(responses, :request_id),
+                 remote_history_item_id: aggregate_header_value(responses, :history_item_id)
                }),
                audio_path,
-               response.content_type
+               content_type_for(responses)
              ) do
         {:ok, generation}
       else
@@ -177,6 +181,85 @@ defmodule PhoenixTts.Audio do
   def default_output_format do
     Application.get_env(:phoenix_tts, :elevenlabs_default_output_format, "mp3_44100_128")
   end
+
+  defp synthesize_text(text, request_opts) do
+    with {:ok, chunks} <- split_text_for_generation(text) do
+      Enum.reduce_while(chunks, {:ok, []}, fn chunk, {:ok, responses} ->
+        case elevenlabs_client().synthesize_speech(chunk, request_opts) do
+          {:ok, response} -> {:cont, {:ok, responses ++ [response]}}
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
+      end)
+    end
+  end
+
+  defp split_text_for_generation(text) do
+    character_count = String.length(text)
+
+    cond do
+      character_count <= @practical_chunk_size ->
+        {:ok, [text]}
+
+      character_count <= @practical_chunk_size * @max_split_chunks ->
+        {:ok, split_text_in_two(text)}
+
+      true ->
+        {:error, "Texto acima do limite operacional. Reduza para até 10.000 caracteres."}
+    end
+  end
+
+  defp split_text_in_two(text) do
+    total = String.length(text)
+    min_split = max(total - @practical_chunk_size, 1)
+    max_split = min(@practical_chunk_size, total - 1)
+    split_index = find_split_index(text, min_split, max_split)
+
+    [
+      text |> String.slice(0, split_index) |> String.trim(),
+      text |> String.slice(split_index, total - split_index) |> String.trim()
+    ]
+    |> Enum.reject(&(&1 == ""))
+  end
+
+  defp find_split_index(text, min_split, max_split) do
+    separators = ["\n\n", "\n", ". ", "! ", "? ", "; ", ": ", ", ", " "]
+
+    Enum.find_value(separators, fn separator ->
+      Enum.find_value(Range.new(max_split, min_split, -1), fn index ->
+        separator_length = String.length(separator)
+
+        if String.slice(text, max(index - separator_length, 0), separator_length) == separator do
+          index
+        end
+      end)
+    end) || max_split
+  end
+
+  defp merge_audio_chunks(responses) do
+    responses
+    |> Enum.map(& &1.audio)
+    |> IO.iodata_to_binary()
+  end
+
+  defp aggregate_character_count(responses, original_text) do
+    counts =
+      responses
+      |> Enum.map(& &1.character_count)
+      |> Enum.reject(&is_nil/1)
+
+    if counts == [], do: String.length(original_text), else: Enum.sum(counts)
+  end
+
+  defp aggregate_header_value(responses, key) do
+    responses
+    |> Enum.map(&Map.get(&1, key))
+    |> Enum.reject(&(&1 in [nil, ""]))
+    |> Enum.join(", ")
+    |> blank_to_nil()
+  end
+
+  defp content_type_for([first | _]), do: first.content_type || "audio/mpeg"
+  defp content_type_for([]), do: "audio/mpeg"
 
   defp insert_generation(params, audio_path, content_type) do
     %Generation{}

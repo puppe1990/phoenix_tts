@@ -30,6 +30,7 @@ defmodule PhoenixTtsWeb.AudioLive do
      |> assign(:recent_generation_id, nil)
      |> assign(:advanced_open, false)
      |> assign(:form_feedback, nil)
+     |> assign(:generation_pending, false)
      |> assign(:clone_feedback, nil)
      |> assign(:clone_result, nil)
      |> assign(:clone_samples, [])
@@ -55,26 +56,29 @@ defmodule PhoenixTtsWeb.AudioLive do
   end
 
   def handle_event("save", %{"audio_generation" => params}, socket) do
-    case Audio.create_generation(params) do
-      {:ok, generation} ->
-        preserved_attrs =
-          params
-          |> normalize_form_attrs()
-          |> Map.put("text", "")
+    normalized_params = normalize_form_attrs(params)
+    changeset = Audio.change_generation(normalized_params)
 
+    cond do
+      socket.assigns.generation_pending ->
+        {:noreply, socket}
+
+      changeset.valid? ->
         {:noreply,
          socket
-         |> put_flash(:info, "Áudio gerado com sucesso.")
-         |> assign(:recent_generation_id, generation.id)
-         |> assign(:form_feedback, {:info, "Áudio pronto. A última configuração foi mantida para a próxima geração."})
-         |> assign_form(preserved_attrs)
-         |> assign(:generations, [generation | socket.assigns.generations])}
+         |> assign(:form_feedback, {:info, "Gerando áudio em background. Aguarde a finalização."})
+         |> assign(:generation_pending, true)
+         |> assign_form(normalized_params)
+         |> start_async(:generate_audio, fn ->
+           {Audio.create_generation(normalized_params), normalized_params}
+         end)}
 
-      {:error, changeset} ->
+      true ->
         {:noreply,
          socket
+         |> assign(:generation_pending, false)
          |> assign(:form_feedback, {:error, feedback_message(changeset)})
-         |> assign(:form_attrs, normalize_form_attrs(params))
+         |> assign(:form_attrs, normalized_params)
          |> assign(:form, to_form(changeset, as: :audio_generation))}
     end
   end
@@ -185,20 +189,28 @@ defmodule PhoenixTtsWeb.AudioLive do
   def handle_event("load_more_remote_history", _params, socket) do
     socket = assign(socket, :remote_history_loading, true)
 
-    case Audio.remote_history_page(%{start_after_history_item_id: socket.assigns.remote_history_cursor}) do
+    case Audio.remote_history_page(%{
+           start_after_history_item_id: socket.assigns.remote_history_cursor
+         }) do
       {:ok, %{items: items, has_more: has_more, last_history_item_id: last_history_item_id}} ->
         {:noreply,
          socket
          |> assign(:remote_history_loading, false)
          |> assign(:remote_history, socket.assigns.remote_history ++ items)
          |> assign(:remote_history_has_more, has_more)
-         |> assign(:remote_history_cursor, history_cursor(items, last_history_item_id, socket.assigns.remote_history_cursor))}
+         |> assign(
+           :remote_history_cursor,
+           history_cursor(items, last_history_item_id, socket.assigns.remote_history_cursor)
+         )}
 
       {:error, _reason} ->
         {:noreply,
          socket
          |> assign(:remote_history_loading, false)
-         |> assign(:form_feedback, {:error, "Não foi possível carregar mais itens recentes agora."})}
+         |> assign(
+           :form_feedback,
+           {:error, "Não foi possível carregar mais itens recentes agora."}
+         )}
     end
   end
 
@@ -220,13 +232,51 @@ defmodule PhoenixTtsWeb.AudioLive do
 
         socket
         |> assign(:advanced_open, true)
-        |> assign(:form_feedback, {:info, "Configuração reaplicada. Ajuste o texto e gere novamente."})
+        |> assign(
+          :form_feedback,
+          {:info, "Configuração reaplicada. Ajuste o texto e gere novamente."}
+        )
         |> assign_form(attrs)
       else
         socket
       end
 
     {:noreply, socket}
+  end
+
+  def handle_async(:generate_audio, {:ok, {{:ok, generation}, params}}, socket) do
+    preserved_attrs =
+      params
+      |> normalize_form_attrs()
+      |> Map.put("text", "")
+
+    {:noreply,
+     socket
+     |> put_flash(:info, "Áudio gerado com sucesso.")
+     |> assign(:generation_pending, false)
+     |> assign(:recent_generation_id, generation.id)
+     |> assign(
+       :form_feedback,
+       {:info, "Áudio pronto. A última configuração foi mantida para a próxima geração."}
+     )
+     |> assign_form(preserved_attrs)
+     |> assign(:generations, [generation | socket.assigns.generations])}
+  end
+
+  def handle_async(:generate_audio, {:ok, {{:error, changeset}, params}}, socket) do
+    {:noreply,
+     socket
+     |> assign(:generation_pending, false)
+     |> assign(:form_feedback, {:error, feedback_message(changeset)})
+     |> assign(:form_attrs, normalize_form_attrs(params))
+     |> assign(:form, to_form(changeset, as: :audio_generation))}
+  end
+
+  def handle_async(:generate_audio, {:exit, _reason}, socket) do
+    {:noreply,
+     socket
+     |> assign(:generation_pending, false)
+     |> assign(:form_feedback, {:error, "A geração falhou internamente. Tente novamente."})}
   end
 
   def render(assigns) do
@@ -386,7 +436,10 @@ defmodule PhoenixTtsWeb.AudioLive do
                   phx-change="validate"
                   phx-submit="save"
                 >
-                  <div class="grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
+                  <fieldset
+                    disabled={@generation_pending}
+                    class="grid gap-6 disabled:opacity-80 xl:grid-cols-[1.25fr_0.75fr]"
+                  >
                     <div class="rounded-[1.45rem] border border-white/8 bg-white/[0.02] p-4">
                       <div class="flex items-center justify-between gap-4">
                         <label for={@form[:text].id} class="text-sm font-semibold text-[#f7f1e8]">
@@ -460,7 +513,12 @@ defmodule PhoenixTtsWeb.AudioLive do
                           value={@voice_query}
                           open={@voice_box_open}
                           placeholder="Buscar voz por nome, accent ou voice id"
-                          options={voice_combobox_options(@voices, active_voice_query(@voice_query, @voices, @form_attrs["voice_id"]))}
+                          options={
+                            voice_combobox_options(
+                              @voices,
+                              active_voice_query(@voice_query, @voices, @form_attrs["voice_id"])
+                            )
+                          }
                           empty_label="Nenhuma voz encontrada"
                         />
 
@@ -472,7 +530,12 @@ defmodule PhoenixTtsWeb.AudioLive do
                           value={@model_query}
                           open={@model_box_open}
                           placeholder="Buscar por nome ou id do modelo"
-                          options={model_combobox_options(@models, active_model_query(@model_query, @models, @form_attrs["model_id"]))}
+                          options={
+                            model_combobox_options(
+                              @models,
+                              active_model_query(@model_query, @models, @form_attrs["model_id"])
+                            )
+                          }
                           empty_label="Nenhum modelo encontrado"
                         />
 
@@ -484,14 +547,23 @@ defmodule PhoenixTtsWeb.AudioLive do
                           value={@language_query}
                           open={@language_box_open}
                           placeholder="Buscar por nome ou código"
-                          options={language_combobox_options(active_language_query(@language_query, @form_attrs["language_code"]))}
+                          options={
+                            language_combobox_options(
+                              active_language_query(@language_query, @form_attrs["language_code"])
+                            )
+                          }
                           empty_label="Nenhum idioma encontrado"
                         />
 
                         <div class="rounded-[1.2rem] border border-white/10 bg-[#0d1729] px-4 py-3 text-sm text-white/60">
                           <p class="font-medium text-[#f7f1e8]">Última configuração usada</p>
                           <p class="mt-2 leading-6">
-                            {summary_voice(@voices, @form_attrs["voice_id"])} • {summary_model(@models, @form_attrs["model_id"])} • {summary_language(@form_attrs["language_code"])} • {summary_output(@form_attrs["output_format"])}
+                            {summary_voice(@voices, @form_attrs["voice_id"])} • {summary_model(
+                              @models,
+                              @form_attrs["model_id"]
+                            )} • {summary_language(@form_attrs["language_code"])} • {summary_output(
+                              @form_attrs["output_format"]
+                            )}
                           </p>
                         </div>
                       </div>
@@ -548,7 +620,7 @@ defmodule PhoenixTtsWeb.AudioLive do
                         </div>
                       </div>
                     </div>
-                  </div>
+                  </fieldset>
 
                   <div
                     :if={Enum.empty?(@voices)}
@@ -576,11 +648,14 @@ defmodule PhoenixTtsWeb.AudioLive do
 
                     <button
                       type="submit"
-                      phx-disable-with="Gerando áudio..."
-                      disabled={submit_disabled?(@api_key_configured, @models, @form_attrs)}
+                      phx-disable-with="Iniciando..."
+                      disabled={
+                        @generation_pending or
+                          submit_disabled?(@api_key_configured, @models, @form_attrs)
+                      }
                       class="inline-flex w-full items-center justify-center rounded-full bg-[#7fe3f5] px-8 py-4 text-sm font-semibold uppercase tracking-[0.18em] text-[#07111f] transition hover:bg-[#a2edfa] disabled:cursor-not-allowed disabled:opacity-50 lg:w-auto lg:min-w-72"
                     >
-                      Gerar áudio
+                      {if @generation_pending, do: "Gerando áudio...", else: "Gerar áudio"}
                     </button>
                   </div>
                 </.form>
@@ -634,7 +709,9 @@ defmodule PhoenixTtsWeb.AudioLive do
                   ]}
                 >
                   <p class="text-[11px] uppercase tracking-[0.18em] opacity-70">
-                    {if elem(@clone_feedback, 0) == :info, do: "status da clonagem", else: "falha na clonagem"}
+                    {if elem(@clone_feedback, 0) == :info,
+                      do: "status da clonagem",
+                      else: "falha na clonagem"}
                   </p>
                   {elem(@clone_feedback, 1)}
                 </div>
@@ -664,22 +741,32 @@ defmodule PhoenixTtsWeb.AudioLive do
                   </div>
 
                   <div>
-                    <label class="mb-1 block text-sm font-medium text-[#f7f1e8]">Amostras de áudio</label>
+                    <label class="mb-1 block text-sm font-medium text-[#f7f1e8]">
+                      Amostras de áudio
+                    </label>
                     <div class="rounded-[1.2rem] border border-dashed border-white/15 bg-white/[0.02] p-4">
                       <.live_file_input
                         upload={@uploads.samples}
                         class="block w-full cursor-pointer text-sm text-white/60 file:mr-4 file:rounded-full file:border-0 file:bg-[#7fe3f5] file:px-4 file:py-2 file:text-sm file:font-semibold file:text-[#07111f]"
                       />
-                      <div :if={clone_sample_entries(@uploads.samples.entries, @clone_samples) != []} class="mt-4 space-y-2">
+                      <div
+                        :if={clone_sample_entries(@uploads.samples.entries, @clone_samples) != []}
+                        class="mt-4 space-y-2"
+                      >
                         <div
-                          :for={entry <- clone_sample_entries(@uploads.samples.entries, @clone_samples)}
+                          :for={
+                            entry <- clone_sample_entries(@uploads.samples.entries, @clone_samples)
+                          }
                           class="rounded-xl border border-white/10 bg-[#0d1729] px-3 py-3 text-sm text-white/70"
                         >
                           {clone_sample_label(entry)}
                         </div>
                       </div>
                     </div>
-                    <p :if={@clone_samples != []} class="mt-2 text-xs uppercase tracking-[0.16em] text-white/35">
+                    <p
+                      :if={@clone_samples != []}
+                      class="mt-2 text-xs uppercase tracking-[0.16em] text-white/35"
+                    >
                       amostras preservadas para nova tentativa
                     </p>
                     <p
@@ -704,7 +791,9 @@ defmodule PhoenixTtsWeb.AudioLive do
                   :if={@clone_result}
                   class="mt-5 rounded-[1.4rem] border border-white/10 bg-[#0d1729] p-4 text-sm text-white/65"
                 >
-                  <p class="text-[11px] uppercase tracking-[0.24em] text-[#7fd6e8]/70">Voice ID gerado</p>
+                  <p class="text-[11px] uppercase tracking-[0.24em] text-[#7fd6e8]/70">
+                    Voice ID gerado
+                  </p>
                   <p class="mt-3 text-lg font-semibold text-[#f7f1e8]">{@clone_result.voice_id}</p>
                   <p class="mt-2 text-sm text-white/55">{@clone_result.name}</p>
                 </div>
@@ -728,7 +817,10 @@ defmodule PhoenixTtsWeb.AudioLive do
                 </div>
 
                 <div class="mt-4">
-                  <label for="recent-voice-search" class="mb-1 block text-sm font-medium text-[#f7f1e8]">
+                  <label
+                    for="recent-voice-search"
+                    class="mb-1 block text-sm font-medium text-[#f7f1e8]"
+                  >
                     Buscar voz
                   </label>
                   <input
@@ -776,8 +868,14 @@ defmodule PhoenixTtsWeb.AudioLive do
                   </div>
                   <div class="mt-4 flex items-center justify-between gap-3 text-sm text-white/55">
                     <span>{voice.labels["accent"] || "Sem accent"}</span>
-                    <span class={if selected_voice?(voice.id, @form_attrs), do: "text-[#7fd6e8]", else: "text-white/40"}>
-                      {if selected_voice?(voice.id, @form_attrs), do: "selecionada", else: "clique para usar"}
+                    <span class={
+                      if selected_voice?(voice.id, @form_attrs),
+                        do: "text-[#7fd6e8]",
+                        else: "text-white/40"
+                    }>
+                      {if selected_voice?(voice.id, @form_attrs),
+                        do: "selecionada",
+                        else: "clique para usar"}
                     </span>
                   </div>
                 </button>
@@ -836,7 +934,9 @@ defmodule PhoenixTtsWeb.AudioLive do
                       </span>
                     </div>
                     <p class="mt-4 text-sm text-white/60">{item.model_id}</p>
-                    <p class="mt-2 text-xs text-white/30">{remote_history_datetime(item.date_unix)}</p>
+                    <p class="mt-2 text-xs text-white/30">
+                      {remote_history_datetime(item.date_unix)}
+                    </p>
                     <audio
                       id={"remote-audio-player-#{item.history_item_id}"}
                       class="mt-4 w-full opacity-90"
@@ -925,7 +1025,10 @@ defmodule PhoenixTtsWeb.AudioLive do
                       class="mt-4 w-full opacity-90"
                       controls
                     >
-                      <source src={~p"/generations/#{generation.id}/audio"} type={generation.content_type} />
+                      <source
+                        src={~p"/generations/#{generation.id}/audio"}
+                        type={generation.content_type}
+                      />
                     </audio>
                     <div class="mt-4 flex flex-wrap items-center gap-4">
                       <button
@@ -1113,7 +1216,8 @@ defmodule PhoenixTtsWeb.AudioLive do
   end
 
   defp submit_disabled?(api_key_configured, models, attrs) do
-    not api_key_configured or Enum.empty?(models) or blank?(attrs["voice_id"]) or blank?(attrs["model_id"])
+    not api_key_configured or Enum.empty?(models) or blank?(attrs["voice_id"]) or
+      blank?(attrs["model_id"])
   end
 
   defp blank?(value), do: value in [nil, ""]
@@ -1261,7 +1365,9 @@ defmodule PhoenixTtsWeb.AudioLive do
 
   defp assign_combobox_query(socket, "voice", value), do: assign(socket, :voice_query, value)
   defp assign_combobox_query(socket, "model", value), do: assign(socket, :model_query, value)
-  defp assign_combobox_query(socket, "language", value), do: assign(socket, :language_query, value)
+
+  defp assign_combobox_query(socket, "language", value),
+    do: assign(socket, :language_query, value)
 
   defp reset_combobox_query(socket, "voice"),
     do:
@@ -1423,7 +1529,9 @@ defmodule PhoenixTtsWeb.AudioLive do
     end
   end
 
-  defp clone_sample_label(%Phoenix.LiveView.UploadEntry{client_name: client_name}), do: client_name
+  defp clone_sample_label(%Phoenix.LiveView.UploadEntry{client_name: client_name}),
+    do: client_name
+
   defp clone_sample_label(%{filename: filename}) when is_binary(filename), do: filename
   defp clone_sample_label(_entry), do: "Amostra carregada"
 
@@ -1461,6 +1569,7 @@ defmodule PhoenixTtsWeb.AudioLive do
     ratio = usage_ratio(text)
 
     cond do
+      ratio > 1.0 -> "2 chamadas"
       ratio >= 0.9 -> "perto do limite"
       ratio >= 0.6 -> "faixa média"
       true -> "baixo consumo"
@@ -1471,6 +1580,7 @@ defmodule PhoenixTtsWeb.AudioLive do
     ratio = usage_ratio(text)
 
     cond do
+      ratio > 1.0 -> "Texto acima de 5000 chars. O Phoenix TTS divide em 2 chamadas separadas."
       ratio >= 0.9 -> "Texto grande. Se falhar, corte em blocos menores."
       ratio >= 0.6 -> "Texto saudável para geração contínua."
       true -> "Texto curto, bom para iteração rápida."
@@ -1481,6 +1591,7 @@ defmodule PhoenixTtsWeb.AudioLive do
     ratio = usage_ratio(text)
 
     cond do
+      ratio > 1.0 -> "text-[#ffd36a]"
       ratio >= 0.9 -> "text-[#f7b38b]"
       ratio >= 0.6 -> "text-[#7fd6e8]"
       true -> "text-white/60"

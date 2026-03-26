@@ -69,7 +69,8 @@ defmodule PhoenixTts.AudioTest do
     end
 
     def list_history(params \\ %{}) do
-      case Map.get(params, :start_after_history_item_id) || Map.get(params, "start_after_history_item_id") do
+      case Map.get(params, :start_after_history_item_id) ||
+             Map.get(params, "start_after_history_item_id") do
         "hist_remote_1" ->
           {:ok,
            %{
@@ -177,6 +178,35 @@ defmodule PhoenixTts.AudioTest do
     refute_received {:synthesize_speech, _, _}
   end
 
+  test "create_generation splits long text into two ElevenLabs requests and merges the audio" do
+    long_text =
+      String.duplicate("Parágrafo terapêutico com pausa.\n\n", 210)
+      |> String.slice(0, 6_670)
+
+    assert String.length(long_text) == 6_670
+
+    assert {:ok, %Generation{} = generation} =
+             Audio.create_generation(%{
+               "text" => long_text,
+               "voice_id" => "voice_br",
+               "model_id" => "eleven_multilingual_v2",
+               "output_format" => "mp3_44100_128",
+               "language_code" => "pt"
+             })
+
+    assert_received {:synthesize_speech, first_chunk, _opts}
+    assert_received {:synthesize_speech, second_chunk, _opts}
+    assert String.length(first_chunk) <= 5_000
+    assert String.length(second_chunk) <= 5_000
+    assert String.length(first_chunk) + String.length(second_chunk) <= 6_670
+    assert generation.character_count == 128
+    assert generation.request_id == "req_local_123, req_local_123"
+    assert generation.remote_history_item_id == "hist_local_123, hist_local_123"
+
+    assert File.read!(Path.join(Audio.storage_dir(), generation.audio_path)) ==
+             "FAKE-MP3-DATAFAKE-MP3-DATA"
+  end
+
   test "create_generation turns timeout into an actionable runtime error" do
     assert {:error, changeset} =
              Audio.create_generation(%{
@@ -187,8 +217,26 @@ defmodule PhoenixTts.AudioTest do
                "language_code" => "pt"
              })
 
-    assert %{runtime: ["A ElevenLabs demorou mais que o limite local. O áudio pode ter sido gerado; confira Itens recentes."]} =
+    assert %{
+             runtime: [
+               "A ElevenLabs demorou mais que o limite local. O áudio pode ter sido gerado; confira Itens recentes."
+             ]
+           } =
              errors_on(changeset)
+  end
+
+  test "create_generation rejects text above two operational chunks" do
+    assert {:error, changeset} =
+             Audio.create_generation(%{
+               "text" => String.duplicate("a", 10_001),
+               "voice_id" => "voice_br",
+               "model_id" => "eleven_multilingual_v2",
+               "output_format" => "mp3_44100_128",
+               "language_code" => "pt"
+             })
+
+    assert %{text: ["should be at most 10000 character(s)"]} = errors_on(changeset)
+    refute_received {:synthesize_speech, _, _}
   end
 
   test "catalog helpers expose remote voices, models, history and endpoint map" do
@@ -197,9 +245,13 @@ defmodule PhoenixTts.AudioTest do
     assert [%Voice{voice_id: "voice_br", category: "premade"}] = Repo.all(Voice)
     assert [%{id: "eleven_multilingual_v2"}] = Audio.available_models()
     assert [%{history_item_id: "hist_remote_1"}] = Audio.remote_history()
-    assert {:ok, %{has_more: true, last_history_item_id: "hist_remote_1"}} = Audio.remote_history_page()
+
+    assert {:ok, %{has_more: true, last_history_item_id: "hist_remote_1"}} =
+             Audio.remote_history_page()
+
     assert {:ok, %{items: [%{history_item_id: "hist_remote_2"}]}} =
              Audio.remote_history_page(%{start_after_history_item_id: "hist_remote_1"})
+
     assert {:ok, %{remaining_tokens: 8_750, total_tokens: 10_000, used_tokens: 1_250}} =
              Audio.subscription_overview()
 
@@ -215,7 +267,9 @@ defmodule PhoenixTts.AudioTest do
   end
 
   test "clone_voice validates input and sends the uploaded samples to ElevenLabs" do
-    sample_path = Path.join(System.tmp_dir!(), "audio-clone-sample-#{System.unique_integer([:positive])}.mp3")
+    sample_path =
+      Path.join(System.tmp_dir!(), "audio-clone-sample-#{System.unique_integer([:positive])}.mp3")
+
     File.write!(sample_path, "FAKE-AUDIO")
 
     on_exit(fn -> File.rm(sample_path) end)
@@ -225,7 +279,8 @@ defmodule PhoenixTts.AudioTest do
                %{path: sample_path, filename: "sample.mp3", content_type: "audio/mpeg"}
              ])
 
-    assert_received {:clone_instant_voice, "Minha Voz", [%{path: ^sample_path, filename: "sample.mp3"}]}
+    assert_received {:clone_instant_voice, "Minha Voz",
+                     [%{path: ^sample_path, filename: "sample.mp3"}]}
   end
 
   test "clone_voice requires a name and at least one sample" do

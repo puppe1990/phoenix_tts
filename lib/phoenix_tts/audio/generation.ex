@@ -21,7 +21,7 @@ defmodule PhoenixTts.Audio.Generation do
     generation
     |> cast(attrs, [:text, :voice_id, :model_id, :output_format, :language_code])
     |> validate_required([:text, :voice_id, :model_id, :output_format])
-    |> validate_length(:text, min: 10, max: 5_000)
+    |> validate_length(:text, min: 10, max: 10_000)
     |> validate_length(:voice_id, min: 2)
     |> validate_length(:model_id, min: 2)
     |> validate_length(:output_format, min: 3)
