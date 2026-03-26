@@ -166,6 +166,36 @@ defmodule PhoenixTts.ElevenLabs.ClientTest do
              ])
   end
 
+  test "clone_instant_voice also accepts consumed upload bytes", %{bypass: bypass} do
+    Bypass.expect_once(bypass, "POST", "/v1/voices/add", fn conn ->
+      assert {"xi-api-key", "test-key"} in conn.req_headers
+
+      conn = Plug.Conn.fetch_query_params(conn)
+      conn = Plug.Parsers.call(conn, Plug.Parsers.init(parsers: [:multipart]))
+
+      assert conn.body_params["name"] == "Binary Clone"
+
+      [%Plug.Upload{filename: "sample.ogg", content_type: "audio/ogg", path: upload_path}] =
+        List.wrap(conn.body_params["files"])
+
+      assert File.read!(upload_path) == "BINARY-UPLOAD"
+
+      Plug.Conn.resp(
+        conn,
+        200,
+        Jason.encode!(%{
+          "voice_id" => "voice_clone_binary",
+          "name" => "Binary Clone"
+        })
+      )
+    end)
+
+    assert {:ok, %{voice_id: "voice_clone_binary", name: "Binary Clone"}} =
+             Client.clone_instant_voice("Binary Clone", [
+               %{binary: "BINARY-UPLOAD", filename: "sample.ogg", content_type: "audio/ogg"}
+             ])
+  end
+
   test "list_history parses the generated items response", %{bypass: bypass} do
     Bypass.expect_once(bypass, "GET", "/v1/history", fn conn ->
       assert {"xi-api-key", "test-key"} in conn.req_headers

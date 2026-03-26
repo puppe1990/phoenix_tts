@@ -88,7 +88,7 @@ defmodule PhoenixTts.Audio do
           {:ok, clone}
 
         {:error, reason} ->
-          {:error, Ecto.Changeset.add_error(changeset, :name, normalize_error(reason))}
+          {:error, Ecto.Changeset.add_error(changeset, :runtime, normalize_error(reason))}
       end
     else
       {:error, changeset}

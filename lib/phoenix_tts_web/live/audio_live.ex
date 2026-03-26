@@ -32,6 +32,7 @@ defmodule PhoenixTtsWeb.AudioLive do
      |> assign(:form_feedback, nil)
      |> assign(:clone_feedback, nil)
      |> assign(:clone_result, nil)
+     |> assign(:clone_samples, [])
      |> assign(:max_chars, @max_chars)
      |> assign(:api_key_configured, Audio.api_key_configured?())
      |> assign(:recent_voice_search, "")
@@ -79,22 +80,19 @@ defmodule PhoenixTtsWeb.AudioLive do
   end
 
   def handle_event("validate_clone", %{"clone_voice" => params}, socket) do
-    changeset = Audio.change_clone_voice(params, uploaded_samples_count(socket))
+    changeset = Audio.change_clone_voice(params, available_clone_samples_count(socket))
 
     {:noreply,
      socket
-     |> assign(:clone_feedback, nil)
+     |> maybe_clear_clone_feedback()
      |> assign(:clone_form, to_form(changeset, as: :clone_voice))}
   end
 
   def handle_event("save_clone", %{"clone_voice" => params}, socket) do
-    changeset = Audio.change_clone_voice(params, uploaded_samples_count(socket))
+    changeset = Audio.change_clone_voice(params, available_clone_samples_count(socket))
 
     if changeset.valid? do
-      samples =
-        consume_uploaded_entries(socket, :samples, fn %{path: path}, entry ->
-          {:ok, %{path: path, filename: entry.client_name, content_type: entry.client_type}}
-        end)
+      {socket, samples} = clone_samples_for_request(socket)
 
       case Audio.clone_voice(params, samples) do
         {:ok, clone} ->
@@ -104,9 +102,10 @@ defmodule PhoenixTtsWeb.AudioLive do
            socket
            |> assign(:voices, voices)
            |> assign(:clone_result, clone)
+           |> assign(:clone_samples, [])
            |> assign(
              :clone_feedback,
-             {:info, "Voice clone criada com sucesso. Use o Voice ID abaixo para validar a nova voz."}
+             {:info, "Voice clone criada com sucesso. O novo voice ID está pronto para uso."}
            )
            |> assign(:clone_form, to_form(Audio.change_clone_voice(), as: :clone_voice))}
 
@@ -634,6 +633,9 @@ defmodule PhoenixTtsWeb.AudioLive do
                     feedback_class(elem(@clone_feedback, 0))
                   ]}
                 >
+                  <p class="text-[11px] uppercase tracking-[0.18em] opacity-70">
+                    {if elem(@clone_feedback, 0) == :info, do: "status da clonagem", else: "falha na clonagem"}
+                  </p>
                   {elem(@clone_feedback, 1)}
                 </div>
 
@@ -668,15 +670,18 @@ defmodule PhoenixTtsWeb.AudioLive do
                         upload={@uploads.samples}
                         class="block w-full cursor-pointer text-sm text-white/60 file:mr-4 file:rounded-full file:border-0 file:bg-[#7fe3f5] file:px-4 file:py-2 file:text-sm file:font-semibold file:text-[#07111f]"
                       />
-                      <div :if={@uploads.samples.entries != []} class="mt-4 space-y-2">
+                      <div :if={clone_sample_entries(@uploads.samples.entries, @clone_samples) != []} class="mt-4 space-y-2">
                         <div
-                          :for={entry <- @uploads.samples.entries}
+                          :for={entry <- clone_sample_entries(@uploads.samples.entries, @clone_samples)}
                           class="rounded-xl border border-white/10 bg-[#0d1729] px-3 py-3 text-sm text-white/70"
                         >
-                          {entry.client_name}
+                          {clone_sample_label(entry)}
                         </div>
                       </div>
                     </div>
+                    <p :if={@clone_samples != []} class="mt-2 text-xs uppercase tracking-[0.16em] text-white/35">
+                      amostras preservadas para nova tentativa
+                    </p>
                     <p
                       :if={clone_files_error(@clone_form)}
                       class="mt-2 text-sm text-[#f7b38b]"
@@ -1089,6 +1094,9 @@ defmodule PhoenixTtsWeb.AudioLive do
       files_error = first_error(changeset, :files) ->
         "Adicione amostras de áudio para continuar: #{files_error}"
 
+      runtime_error = first_error(changeset, :runtime) ->
+        "A ElevenLabs recusou a clonagem agora: #{runtime_error}"
+
       true ->
         "Não foi possível criar a voice clone agora."
     end
@@ -1378,6 +1386,50 @@ defmodule PhoenixTtsWeb.AudioLive do
 
   defp uploaded_samples_count(socket) do
     length(socket.assigns.uploads.samples.entries)
+  end
+
+  defp available_clone_samples_count(socket) do
+    uploaded_samples_count(socket) + length(socket.assigns.clone_samples)
+  end
+
+  defp clone_samples_for_request(socket) do
+    uploaded =
+      consume_uploaded_entries(socket, :samples, fn %{path: path}, entry ->
+        {:ok,
+         %{
+           binary: File.read!(path),
+           filename: entry.client_name,
+           content_type: entry.client_type
+         }}
+      end)
+
+    samples =
+      case uploaded do
+        [] -> socket.assigns.clone_samples
+        _ -> uploaded
+      end
+
+    {assign(socket, :clone_samples, samples), samples}
+  end
+
+  defp clone_sample_entries(upload_entries, preserved_samples) do
+    cond do
+      upload_entries != [] -> upload_entries
+      preserved_samples != [] -> preserved_samples
+      true -> []
+    end
+  end
+
+  defp clone_sample_label(%Phoenix.LiveView.UploadEntry{client_name: client_name}), do: client_name
+  defp clone_sample_label(%{filename: filename}) when is_binary(filename), do: filename
+  defp clone_sample_label(_entry), do: "Amostra carregada"
+
+  defp maybe_clear_clone_feedback(socket) do
+    if elem(socket.assigns.clone_feedback || {:info, nil}, 0) == :error do
+      socket
+    else
+      assign(socket, :clone_feedback, nil)
+    end
   end
 
   defp clone_files_error(form) do

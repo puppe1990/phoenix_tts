@@ -166,6 +166,19 @@ defmodule PhoenixTtsWeb.AudioLiveTest do
     end
   end
 
+  defmodule FakeElevenLabsClientCloneFailure do
+    def synthesize_speech(text, opts), do: FakeElevenLabsClient.synthesize_speech(text, opts)
+    def list_voices(params \\ %{}), do: FakeElevenLabsClient.list_voices(params)
+    def list_models, do: FakeElevenLabsClient.list_models()
+    def list_history(params \\ %{}), do: FakeElevenLabsClient.list_history(params)
+    def get_history_audio(history_item_id), do: FakeElevenLabsClient.get_history_audio(history_item_id)
+    def get_subscription, do: FakeElevenLabsClient.get_subscription()
+
+    def clone_instant_voice(_name, _files) do
+      {:error, "sample quality too low"}
+    end
+  end
+
   setup do
     tmp_dir =
       Path.join(System.tmp_dir!(), "phoenix-tts-live-#{System.unique_integer([:positive])}")
@@ -258,6 +271,41 @@ defmodule PhoenixTtsWeb.AudioLiveTest do
 
     assert html =~ "Voice clone criada com sucesso."
     assert html =~ "voice_clone_123"
+  end
+
+  test "clone route keeps form state and samples visible when ElevenLabs returns an error", %{conn: conn} do
+    Application.put_env(:phoenix_tts, :elevenlabs_client, FakeElevenLabsClientCloneFailure)
+
+    sample_path =
+      Path.join(System.tmp_dir!(), "live-clone-error-sample-#{System.unique_integer([:positive])}.ogg")
+
+    File.write!(sample_path, "VOICE-SAMPLE")
+
+    on_exit(fn -> File.rm(sample_path) end)
+
+    {:ok, view, _html} = live(conn, ~p"/clone")
+
+    upload =
+      file_input(view, "#clone-form", :samples, [
+        %{
+          last_modified: 1_743_000_000_000,
+          name: "sample-error.ogg",
+          content: File.read!(sample_path),
+          type: "audio/ogg"
+        }
+      ])
+
+    assert render_upload(upload, "sample-error.ogg") =~ "sample-error.ogg"
+
+    html =
+      view
+      |> form("#clone-form", clone_voice: %{"name" => "Henrique Braga"})
+      |> render_submit()
+
+    assert html =~ "A ElevenLabs recusou a clonagem agora: sample quality too low"
+    assert html =~ "value=\"Henrique Braga\""
+    assert html =~ "sample-error.ogg"
+    assert html =~ "amostras preservadas para nova tentativa"
   end
 
   test "recentes route focuses on remote and local history", %{conn: conn} do

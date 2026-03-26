@@ -173,13 +173,18 @@ defmodule PhoenixTts.ElevenLabs.Client do
   defp clone_voice_fields(name, files) do
     [{"name", name}] ++
       Enum.map(files, fn file ->
-        {"files",
-         {File.stream!(file.path, [], 2_048),
-          filename: file[:filename] || Path.basename(file.path),
-          content_type:
-            file[:content_type] || MIME.from_path(file[:filename] || Path.basename(file.path))}}
+        filename = file[:filename] || default_clone_filename(file)
+        content_type = file[:content_type] || MIME.from_path(filename)
+
+        {"files", {clone_file_value(file), filename: filename, content_type: content_type}}
       end)
   end
+
+  defp clone_file_value(%{binary: binary}) when is_binary(binary), do: binary
+  defp clone_file_value(%{path: path}), do: File.stream!(path, [], 2_048)
+
+  defp default_clone_filename(%{path: path}) when is_binary(path), do: Path.basename(path)
+  defp default_clone_filename(_file), do: "sample.wav"
 
   defp decode_audio_response({:ok, %Req.Response{status: status, body: body, headers: headers}})
        when status in 200..299 do
