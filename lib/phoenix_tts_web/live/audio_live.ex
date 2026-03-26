@@ -22,6 +22,9 @@ defmodule PhoenixTtsWeb.AudioLive do
      |> assign(:advanced_open, false)
      |> assign(:form_feedback, nil)
      |> assign(:max_chars, @max_chars)
+     |> assign(:voice_query, "")
+     |> assign(:model_query, "")
+     |> assign(:language_query, "")
      |> assign(:api_key_configured, Audio.api_key_configured?())
      |> assign_form(form_attrs)}
   end
@@ -67,6 +70,18 @@ defmodule PhoenixTtsWeb.AudioLive do
      socket
      |> assign(:form_feedback, nil)
      |> assign_form(attrs)}
+  end
+
+  def handle_event("filter_voice", %{"value" => value}, socket) do
+    {:noreply, assign(socket, :voice_query, value)}
+  end
+
+  def handle_event("filter_model", %{"value" => value}, socket) do
+    {:noreply, assign(socket, :model_query, value)}
+  end
+
+  def handle_event("filter_language", %{"value" => value}, socket) do
+    {:noreply, assign(socket, :language_query, value)}
   end
 
   def handle_event("toggle_advanced", _params, socket) do
@@ -201,29 +216,83 @@ defmodule PhoenixTtsWeb.AudioLive do
                           Básico
                         </p>
 
+                        <div class="mt-4 space-y-3">
+                          <label class="block">
+                            <span class="mb-1 block text-xs uppercase tracking-[0.18em] text-white/38">
+                              Finder de voz
+                            </span>
+                            <input
+                              id="voice-finder"
+                              name="voice_query"
+                              type="text"
+                              value={@voice_query}
+                              phx-keyup="filter_voice"
+                              phx-debounce="200"
+                              placeholder="Buscar por nome, accent ou voice id"
+                              class="w-full rounded-[1.1rem] border border-white/10 bg-[#111b2f] px-4 py-3 text-sm text-[#f7f1e8] placeholder:text-white/30"
+                            />
+                          </label>
+                        </div>
+
                         <.input
                           field={@form[:voice_id]}
                           type="select"
                           label="Voz"
-                          options={voice_options(@voices)}
-                          prompt={voice_prompt(@voices)}
+                          options={voice_options(filtered_voices(@voices, @voice_query, @form_attrs["voice_id"]))}
+                          prompt={voice_prompt(filtered_voices(@voices, @voice_query, @form_attrs["voice_id"]))}
                           class="rounded-[1.1rem] border border-white/10 bg-[#111b2f] px-4 py-3 text-[#f7f1e8]"
                         />
+
+                        <div class="space-y-3">
+                          <label class="block">
+                            <span class="mb-1 block text-xs uppercase tracking-[0.18em] text-white/38">
+                              Finder de modelo
+                            </span>
+                            <input
+                              id="model-finder"
+                              name="model_query"
+                              type="text"
+                              value={@model_query}
+                              phx-keyup="filter_model"
+                              phx-debounce="200"
+                              placeholder="Buscar por nome ou id do modelo"
+                              class="w-full rounded-[1.1rem] border border-white/10 bg-[#111b2f] px-4 py-3 text-sm text-[#f7f1e8] placeholder:text-white/30"
+                            />
+                          </label>
+                        </div>
 
                         <.input
                           field={@form[:model_id]}
                           type="select"
                           label="Modelo"
-                          options={Enum.map(@models, &{"#{&1.name}", &1.id})}
-                          prompt={model_prompt(@models)}
+                          options={model_options(filtered_models(@models, @model_query, @form_attrs["model_id"]))}
+                          prompt={model_prompt(filtered_models(@models, @model_query, @form_attrs["model_id"]))}
                           class="rounded-[1.1rem] border border-white/10 bg-[#111b2f] px-4 py-3 text-[#f7f1e8]"
                         />
+
+                        <div class="space-y-3">
+                          <label class="block">
+                            <span class="mb-1 block text-xs uppercase tracking-[0.18em] text-white/38">
+                              Finder de idioma
+                            </span>
+                            <input
+                              id="language-finder"
+                              name="language_query"
+                              type="text"
+                              value={@language_query}
+                              phx-keyup="filter_language"
+                              phx-debounce="200"
+                              placeholder="Buscar por nome ou código"
+                              class="w-full rounded-[1.1rem] border border-white/10 bg-[#111b2f] px-4 py-3 text-sm text-[#f7f1e8] placeholder:text-white/30"
+                            />
+                          </label>
+                        </div>
 
                         <.input
                           field={@form[:language_code]}
                           type="select"
                           label="Idioma"
-                          options={language_options()}
+                          options={filtered_languages(@language_query, @form_attrs["language_code"])}
                           class="rounded-[1.1rem] border border-white/10 bg-[#111b2f] px-4 py-3 text-[#f7f1e8]"
                         />
 
@@ -352,7 +421,7 @@ defmodule PhoenixTtsWeb.AudioLive do
                 </div>
 
                 <button
-                  :for={voice <- @voices}
+                  :for={voice <- matching_voices(@voices, @voice_query)}
                   type="button"
                   phx-click="select_voice"
                   phx-value-voice_id={voice.id}
@@ -426,6 +495,28 @@ defmodule PhoenixTtsWeb.AudioLive do
                     </div>
                     <p class="mt-4 text-sm text-white/60">{item.model_id}</p>
                     <p class="mt-2 text-xs text-white/30">{remote_history_datetime(item.date_unix)}</p>
+                    <audio
+                      id={"remote-audio-player-#{item.history_item_id}"}
+                      class="mt-4 w-full opacity-90"
+                      controls
+                      preload="none"
+                    >
+                      <source src={~p"/history/#{item.history_item_id}/audio"} type="audio/mpeg" />
+                    </audio>
+                    <div class="mt-4 flex flex-wrap items-center gap-4">
+                      <a
+                        href={~p"/history/#{item.history_item_id}/audio"}
+                        class="text-sm font-semibold text-[#7fd6e8] underline decoration-[#7fd6e8]/35 underline-offset-4"
+                      >
+                        ouvir agora
+                      </a>
+                      <a
+                        href={~p"/history/#{item.history_item_id}/audio?download=1"}
+                        class="text-sm font-semibold text-[#7fd6e8] underline decoration-[#7fd6e8]/35 underline-offset-4"
+                      >
+                        baixar áudio
+                      </a>
+                    </div>
                   </article>
                 </div>
               </section>
@@ -586,6 +677,7 @@ defmodule PhoenixTtsWeb.AudioLive do
   defp selected_voice?(voice_id, form_attrs), do: form_attrs["voice_id"] == voice_id
 
   defp voice_options(voices), do: Enum.map(voices, &{"#{&1.name} (#{&1.id})", &1.id})
+  defp model_options(models), do: Enum.map(models, &{"#{&1.name}", &1.id})
   defp voice_prompt([]), do: "Nenhuma voz carregada"
   defp voice_prompt(_voices), do: nil
 
@@ -660,6 +752,69 @@ defmodule PhoenixTtsWeb.AudioLive do
       {"Alemão", "de"},
       {"Japonês", "ja"}
     ]
+  end
+
+  defp filtered_voices(voices, query, selected_id) do
+    voices
+    |> matching_voices(query)
+    |> keep_selected_voice(voices, selected_id)
+  end
+
+  defp matching_voices(voices, query) do
+    Enum.filter(voices, fn voice ->
+      query == "" or
+        contains_query?(voice.name, query) or
+        contains_query?(voice.id, query) or
+        contains_query?(voice.labels["accent"], query)
+    end)
+  end
+
+  defp filtered_models(models, query, selected_id) do
+    models
+    |> Enum.filter(fn model ->
+      query == "" or contains_query?(model.name, query) or contains_query?(model.id, query)
+    end)
+    |> keep_selected_model(models, selected_id)
+  end
+
+  defp filtered_languages(query, selected_code) do
+    language_options()
+    |> Enum.filter(fn {label, value} ->
+      query == "" or contains_query?(label, query) or contains_query?(value, query)
+    end)
+    |> keep_selected_language(selected_code)
+  end
+
+  defp contains_query?(value, query) when is_binary(value) do
+    String.contains?(String.downcase(value), String.downcase(query))
+  end
+
+  defp contains_query?(_, _), do: false
+
+  defp keep_selected_voice(filtered, voices, selected_id) do
+    maybe_prepend_selected(filtered, Enum.find(voices, &(&1.id == selected_id)), & &1.id)
+  end
+
+  defp keep_selected_model(filtered, models, selected_id) do
+    maybe_prepend_selected(filtered, Enum.find(models, &(&1.id == selected_id)), & &1.id)
+  end
+
+  defp keep_selected_language(filtered, selected_code) do
+    maybe_prepend_selected(
+      filtered,
+      Enum.find(language_options(), fn {_label, value} -> value == selected_code end),
+      fn {_label, value} -> value end
+    )
+  end
+
+  defp maybe_prepend_selected(items, nil, _key_fun), do: items
+
+  defp maybe_prepend_selected(items, selected_item, key_fun) do
+    if Enum.any?(items, fn item -> key_fun.(item) == key_fun.(selected_item) end) do
+      items
+    else
+      [selected_item | items]
+    end
   end
 
   defp character_count(text), do: text |> to_string() |> String.length()

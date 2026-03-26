@@ -18,4 +18,7 @@ defmodule PhoenixTts.ElevenLabs.ClientBehaviour do
               {:ok,
                %{items: list(map()), has_more: boolean(), last_history_item_id: String.t() | nil}}
               | {:error, term()}
+
+  @callback get_history_audio(String.t()) ::
+              {:ok, %{audio: binary(), content_type: String.t() | nil}} | {:error, term()}
 end

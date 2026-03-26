@@ -172,4 +172,18 @@ defmodule PhoenixTts.ElevenLabs.ClientTest do
               last_history_item_id: "hist_123"
             }} = Client.list_history(%{page_size: 5, voice_id: "voice_br"})
   end
+
+  test "get_history_audio returns the audio bytes for a history item", %{bypass: bypass} do
+    Bypass.expect_once(bypass, "GET", "/v1/history/hist_123/audio", fn conn ->
+      assert {"xi-api-key", "test-key"} in conn.req_headers
+      assert {"accept", "audio/mpeg"} in conn.req_headers
+
+      conn
+      |> Plug.Conn.put_resp_content_type("audio/mpeg")
+      |> Plug.Conn.resp(200, "REMOTE-MP3")
+    end)
+
+    assert {:ok, %{audio: "REMOTE-MP3", content_type: "audio/mpeg"}} =
+             Client.get_history_audio("hist_123")
+  end
 end

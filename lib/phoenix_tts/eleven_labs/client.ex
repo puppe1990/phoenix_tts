@@ -102,6 +102,18 @@ defmodule PhoenixTts.ElevenLabs.Client do
     end
   end
 
+  def get_history_audio(history_item_id) do
+    case api_key() do
+      nil ->
+        {:error, "Configure a variavel ELEVENLABS_API_KEY para ouvir ou baixar itens recentes."}
+
+      key ->
+        request(key)
+        |> Req.get(url: "/v1/history/#{history_item_id}/audio", headers: [{"accept", "audio/mpeg"}])
+        |> decode_history_audio_response()
+    end
+  end
+
   defp request(api_key) do
     Req.new(
       base_url: Application.fetch_env!(:phoenix_tts, :elevenlabs_base_url),
@@ -134,6 +146,27 @@ defmodule PhoenixTts.ElevenLabs.Client do
   end
 
   defp decode_audio_response({:error, exception}) do
+    {:error, Exception.message(exception)}
+  end
+
+  defp decode_history_audio_response({:ok, %Req.Response{status: status, body: body, headers: headers}})
+       when status in 200..299 do
+    {:ok,
+     %{
+       audio: body,
+       content_type: header_value(headers, "content-type") || "audio/mpeg"
+     }}
+  end
+
+  defp decode_history_audio_response({:ok, %Req.Response{status: _status, body: body}}) do
+    with {:ok, decoded} <- decode_json_body(body) do
+      {:error, decoded["detail"] || decoded["message"] || "Falha ao carregar audio do histórico."}
+    else
+      {:error, _reason} -> {:error, "Falha ao carregar audio do histórico."}
+    end
+  end
+
+  defp decode_history_audio_response({:error, exception}) do
     {:error, Exception.message(exception)}
   end
 

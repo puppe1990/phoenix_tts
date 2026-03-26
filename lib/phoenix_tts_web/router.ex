@@ -17,6 +17,7 @@ defmodule PhoenixTtsWeb.Router do
   scope "/", PhoenixTtsWeb do
     pipe_through :browser
 
+    get "/history/:history_item_id/audio", HistoryAudioController, :show
     live "/", AudioLive, :index
   end
 

@@ -101,6 +101,10 @@ defmodule PhoenixTts.Audio do
     end
   end
 
+  def fetch_history_audio(history_item_id) do
+    elevenlabs_client().get_history_audio(history_item_id)
+  end
+
   def endpoint_catalog, do: EndpointCatalog.list()
 
   def storage_dir do

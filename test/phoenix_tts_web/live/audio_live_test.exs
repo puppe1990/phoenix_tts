@@ -75,6 +75,10 @@ defmodule PhoenixTtsWeb.AudioLiveTest do
          last_history_item_id: "hist_remote_1"
        }}
     end
+
+    def get_history_audio(_history_item_id) do
+      {:ok, %{audio: "REMOTE-AUDIO", content_type: "audio/mpeg"}}
+    end
   end
 
   defmodule FakeElevenLabsClientWithoutHistoryText do
@@ -115,6 +119,10 @@ defmodule PhoenixTtsWeb.AudioLiveTest do
          last_history_item_id: "hist_remote_nil"
        }}
     end
+
+    def get_history_audio(_history_item_id) do
+      {:ok, %{audio: "REMOTE-AUDIO", content_type: "audio/mpeg"}}
+    end
   end
 
   setup do
@@ -146,6 +154,11 @@ defmodule PhoenixTtsWeb.AudioLiveTest do
     assert html =~ "0 / 5000 chars"
     assert html =~ "Idioma"
     assert html =~ "Português"
+    assert html =~ "Finder de voz"
+    assert html =~ "Finder de modelo"
+    assert html =~ "Finder de idioma"
+    assert html =~ "ouvir agora"
+    assert html =~ "baixar áudio"
     assert html =~ "phx-disable-with=\"Gerando áudio...\""
   end
 
@@ -202,6 +215,39 @@ defmodule PhoenixTtsWeb.AudioLiveTest do
 
     assert html =~ "Voz Relax"
     assert html =~ ~r/(selected=\"\" value=\"voice_relax\"|value=\"voice_relax\" selected=\"\")/
+  end
+
+  test "finder inputs filter voice, model and language options", %{conn: conn} do
+    {:ok, view, html} = live(conn, ~p"/")
+
+    assert html =~ "Narradora BR"
+    assert html =~ "Eleven Flash v2.5"
+    assert html =~ "Japonês"
+
+    html =
+      view
+      |> element("#voice-finder")
+      |> render_keyup(%{"value" => "relax"})
+
+    refute html =~ "clique para usar</span></div></button>" <> ""
+    refute html =~ "Narradora BR</p><p class=\"mt-1 text-xs uppercase tracking-[0.18em] text-white/35\">voice_br</p>"
+    assert html =~ "Voz Relax (voice_relax)"
+
+    html =
+      view
+      |> element("#model-finder")
+      |> render_keyup(%{"value" => "flash"})
+
+    assert html =~ "value=\"flash\""
+    assert html =~ "Eleven Flash v2.5"
+
+    html =
+      view
+      |> element("#language-finder")
+      |> render_keyup(%{"value" => "ja"})
+
+    assert html =~ "value=\"ja\""
+    assert html =~ "Japonês"
   end
 
   test "reusing a generation reapplies its configuration", %{conn: conn} do
