@@ -352,6 +352,32 @@ defmodule PhoenixTtsWeb.AudioLive do
                           {character_usage_hint(@form_attrs["text"])}
                         </span>
                       </div>
+
+                      <div class="mt-4 rounded-[1.2rem] border border-white/10 bg-[#0d1729] px-4 py-4">
+                        <div class="flex flex-wrap items-center justify-between gap-3">
+                          <div>
+                            <p class="text-[11px] uppercase tracking-[0.18em] text-white/35">
+                              estimativa de gasto
+                            </p>
+                            <p class="mt-2 text-lg font-semibold text-[#f7f1e8]">
+                              {estimated_token_spend(@form_attrs["text"])} tokens
+                            </p>
+                          </div>
+
+                          <div :if={@subscription} class="text-right">
+                            <p class="text-[11px] uppercase tracking-[0.18em] text-white/35">
+                              saldo após gerar
+                            </p>
+                            <p class="mt-2 text-lg font-semibold text-[#7fd6e8]">
+                              {remaining_after_generation(@subscription, @form_attrs["text"])} tokens
+                            </p>
+                          </div>
+                        </div>
+
+                        <p class="mt-3 text-sm leading-6 text-white/55">
+                          Estimativa baseada no tamanho do texto enviado para a ElevenLabs. O custo real pode variar conforme a resposta da conta.
+                        </p>
+                      </div>
                     </div>
 
                     <div class="space-y-4">
@@ -496,7 +522,7 @@ defmodule PhoenixTtsWeb.AudioLive do
             </div>
           </section>
 
-          <section :if={@live_action != :config} class="grid gap-6 xl:grid-cols-[0.82fr_1.18fr]">
+          <section :if={@live_action == :recentes} class="grid gap-6 xl:grid-cols-[0.82fr_1.18fr]">
             <aside class="overflow-hidden rounded-[2rem] border border-white/10 bg-[#0a1120]/90">
               <div class="border-b border-white/10 px-5 py-5 sm:px-6">
                 <div class="flex items-center justify-between gap-3">
@@ -1118,6 +1144,19 @@ defmodule PhoenixTtsWeb.AudioLive do
   defp page_title(:recentes), do: "Itens recentes"
   defp page_title(:config), do: "Configuração"
   defp page_title(_), do: "ElevenLabs Audio Studio"
+
+  defp estimated_token_spend(text) do
+    text
+    |> character_count()
+    |> format_number()
+  end
+
+  defp remaining_after_generation(subscription, text) do
+    remaining =
+      max((subscription.remaining_tokens || 0) - character_count(text), 0)
+
+    format_number(remaining)
+  end
 
   defp character_count(text), do: text |> to_string() |> String.length()
 

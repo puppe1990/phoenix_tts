@@ -186,16 +186,18 @@ defmodule PhoenixTtsWeb.AudioLiveTest do
     assert html =~ "Studio"
     assert html =~ "Recentes"
     assert html =~ "Configuração"
-    assert html =~ "Narradora BR"
     assert html =~ "0 / 5000 chars"
     assert html =~ "Idioma"
     assert html =~ "Português"
     assert html =~ "voice-combobox-input"
     assert html =~ "model-combobox-input"
     assert html =~ "language-combobox-input"
-    assert html =~ "Nenhum áudio gerado ainda"
+    assert html =~ "estimativa de gasto"
+    assert html =~ "saldo após gerar"
     refute html =~ "Tokens restantes"
     refute html =~ "Itens recentes da ElevenLabs"
+    refute html =~ "Escolha rápida"
+    refute html =~ "Últimos áudios"
     assert html =~ "phx-disable-with=\"Gerando áudio...\""
   end
 
@@ -219,11 +221,13 @@ defmodule PhoenixTtsWeb.AudioLiveTest do
     assert html =~ "ouvir agora"
     assert html =~ "Carregar mais"
     assert html =~ "Narradora BR"
+    assert html =~ "Escolha rápida"
+    assert html =~ "Últimos áudios"
     refute html =~ "voice-combobox-input"
     refute html =~ "Tokens restantes"
   end
 
-  test "submitting the form creates an audio entry and renders the player", %{conn: conn} do
+  test "submitting the form creates an audio entry and keeps the studio focused on generation", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/")
 
     _html =
@@ -250,14 +254,11 @@ defmodule PhoenixTtsWeb.AudioLiveTest do
       |> render_submit()
 
     assert html =~ "Áudio gerado com sucesso."
-    assert html =~ "audio-player"
     assert html =~ "Narradora BR"
-    assert html =~ "req_live_1"
-    assert html =~ "MP3 44.1kHz / 128kbps"
     assert html =~ "Inglês"
-    assert html =~ "baixar mp3"
     assert html =~ "última configuração foi mantida"
-    assert html =~ "usar novamente esta configuração"
+    refute html =~ "Últimos áudios"
+    refute html =~ "audio-player"
   end
 
   test "renders remote history items even when text is nil", %{conn: conn} do
@@ -290,10 +291,10 @@ defmodule PhoenixTtsWeb.AudioLiveTest do
   end
 
   test "clicking a voice card selects it in the form", %{conn: conn} do
-    {:ok, view, html} = live(conn, ~p"/")
+    {:ok, view, html} = live(conn, ~p"/recentes")
 
     assert html =~ "selecionada"
-    assert html =~ "value=\"Narradora BR\""
+    assert html =~ "Narradora BR"
 
     html =
       view
@@ -301,7 +302,8 @@ defmodule PhoenixTtsWeb.AudioLiveTest do
       |> render_click()
 
     assert html =~ "Voz Relax"
-    assert html =~ "value=\"Voz Relax\""
+    assert html =~ "voice_relax"
+    refute html =~ "phx-value-voice_id=\"voice_relax\" class=\"block w-full rounded-[1.4rem] border p-4 text-left transition border-white/10"
   end
 
   test "combobox inputs filter voice, model and language options", %{conn: conn} do
@@ -345,7 +347,7 @@ defmodule PhoenixTtsWeb.AudioLiveTest do
     refute html =~ "value=\"Idioma automático\""
   end
 
-  test "reusing a generation reapplies its configuration", %{conn: conn} do
+  test "recentes route shows the generated item with reuse action", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/")
 
     params = %{
@@ -361,13 +363,15 @@ defmodule PhoenixTtsWeb.AudioLiveTest do
       |> form("#tts-form", audio_generation: params)
       |> render_submit()
 
-    html =
-      view
-      |> element("button[phx-click=\"reuse_generation\"]")
-      |> render_click()
+    {:ok, recentes_view, _html} = live(conn, ~p"/recentes")
 
-    assert html =~ "Configuração reaplicada. Ajuste o texto e gere novamente."
-    assert html =~ "Voice ID atual"
+    html = render(recentes_view)
+
+    assert html =~ "Últimos áudios"
+    assert html =~ "Narradora BR"
+    assert html =~ "MP3 44.1kHz / 128kbps"
+    assert html =~ "usar novamente esta configuração"
+    assert html =~ "req_live_1"
   end
 
   test "disables generation and explains setup when api key is missing", %{conn: conn} do
