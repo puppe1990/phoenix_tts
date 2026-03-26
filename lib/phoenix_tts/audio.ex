@@ -107,6 +107,10 @@ defmodule PhoenixTts.Audio do
     Application.fetch_env!(:phoenix_tts, :audio_storage_dir)
   end
 
+  def api_key_configured? do
+    Application.get_env(:phoenix_tts, :elevenlabs_api_key) not in [nil, ""]
+  end
+
   def default_output_format do
     Application.get_env(:phoenix_tts, :elevenlabs_default_output_format, "mp3_44100_128")
   end

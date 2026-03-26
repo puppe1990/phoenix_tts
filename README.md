@@ -77,9 +77,11 @@ Abra [http://localhost:4000](http://localhost:4000).
 ## Fluxo atual
 
 1. Ao abrir a tela, a aplicação busca vozes e faz upsert em `audio_voices`.
-2. O formulário usa o catálogo carregado para preencher `voice_id` e `model_id`.
-3. Ao gerar um áudio, os metadados são salvos em `audio_generations`.
-4. O MP3 fica disponível localmente para playback e download.
+2. O formulário abre em modo básico com texto, voz e modelo já selecionados quando o catálogo estiver disponível.
+3. A lateral de vozes funciona como seletor rápido e sincroniza a voz escolhida no formulário.
+4. O bloco avançado concentra `output_format`, `language_code` e fallback manual de `voice_id` quando necessário.
+5. Ao gerar um áudio, os metadados são salvos em `audio_generations` e a última configuração fica preservada para a próxima geração.
+6. O histórico local oferece player, download, destaque do item recém-gerado e ação para reaplicar a configuração.
 
 ## Testes
 
