@@ -100,6 +100,17 @@ defmodule PhoenixTtsWeb.AudioLiveTest do
     def get_history_audio(_history_item_id) do
       {:ok, %{audio: "REMOTE-AUDIO", content_type: "audio/mpeg"}}
     end
+
+    def get_subscription do
+      {:ok,
+       %{
+         tier: "creator",
+         status: "active",
+         character_count: 1_250,
+         character_limit: 10_000,
+         next_character_count_reset_unix: 1_743_086_400
+       }}
+    end
   end
 
   defmodule FakeElevenLabsClientWithoutHistoryText do
@@ -144,6 +155,10 @@ defmodule PhoenixTtsWeb.AudioLiveTest do
     def get_history_audio(_history_item_id) do
       {:ok, %{audio: "REMOTE-AUDIO", content_type: "audio/mpeg"}}
     end
+
+    def get_subscription do
+      FakeElevenLabsClient.get_subscription()
+    end
   end
 
   setup do
@@ -168,20 +183,44 @@ defmodule PhoenixTtsWeb.AudioLiveTest do
     {:ok, _view, html} = live(conn, ~p"/")
 
     assert html =~ "ElevenLabs Audio Studio"
+    assert html =~ "Studio"
+    assert html =~ "Recentes"
+    assert html =~ "Configuração"
     assert html =~ "Narradora BR"
-    assert html =~ "clique para usar"
-    assert html =~ "Texto remoto da API"
-    assert html =~ "Nenhum áudio gerado ainda"
     assert html =~ "0 / 5000 chars"
     assert html =~ "Idioma"
     assert html =~ "Português"
     assert html =~ "voice-combobox-input"
     assert html =~ "model-combobox-input"
     assert html =~ "language-combobox-input"
-    assert html =~ "ouvir agora"
-    assert html =~ "baixar áudio"
-    assert html =~ "Carregar mais"
+    assert html =~ "Nenhum áudio gerado ainda"
+    refute html =~ "Tokens restantes"
+    refute html =~ "Itens recentes da ElevenLabs"
     assert html =~ "phx-disable-with=\"Gerando áudio...\""
+  end
+
+  test "config route renders the account balance section", %{conn: conn} do
+    {:ok, _view, html} = live(conn, ~p"/config")
+
+    assert html =~ "Configuração"
+    assert html =~ "Tokens restantes"
+    assert html =~ "Plano CREATOR"
+    assert html =~ "8.750"
+    refute html =~ "voice-combobox-input"
+    refute html =~ "Itens recentes da ElevenLabs"
+    refute html =~ "Navegação rápida"
+  end
+
+  test "recentes route focuses on remote and local history", %{conn: conn} do
+    {:ok, _view, html} = live(conn, ~p"/recentes")
+
+    assert html =~ "Itens recentes da ElevenLabs"
+    assert html =~ "Texto remoto da API"
+    assert html =~ "ouvir agora"
+    assert html =~ "Carregar mais"
+    assert html =~ "Narradora BR"
+    refute html =~ "voice-combobox-input"
+    refute html =~ "Tokens restantes"
   end
 
   test "submitting the form creates an audio entry and renders the player", %{conn: conn} do
@@ -228,14 +267,14 @@ defmodule PhoenixTtsWeb.AudioLiveTest do
       FakeElevenLabsClientWithoutHistoryText
     )
 
-    {:ok, _view, html} = live(conn, ~p"/")
+    {:ok, _view, html} = live(conn, ~p"/recentes")
 
     assert html =~ "Sem texto disponível"
     assert html =~ "18 chars"
   end
 
   test "loads the next page of recent ElevenLabs items", %{conn: conn} do
-    {:ok, view, html} = live(conn, ~p"/")
+    {:ok, view, html} = live(conn, ~p"/recentes")
 
     assert html =~ "Texto remoto da API"
     assert html =~ "Carregar mais"
@@ -296,6 +335,14 @@ defmodule PhoenixTtsWeb.AudioLiveTest do
     assert html =~ "value=\"ja\""
     assert html =~ "Japonês"
     refute html =~ "Português</div><div class=\"mt-1 text-xs uppercase tracking-[0.14em] text-white/35\">pt"
+  end
+
+  test "combobox does not render fallback text as the input value", %{conn: conn} do
+    {:ok, _view, html} = live(conn, ~p"/")
+
+    refute html =~ "value=\"Sem voz selecionada\""
+    refute html =~ "value=\"Sem modelo selecionado\""
+    refute html =~ "value=\"Idioma automático\""
   end
 
   test "reusing a generation reapplies its configuration", %{conn: conn} do

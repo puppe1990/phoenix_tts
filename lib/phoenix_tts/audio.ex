@@ -114,6 +114,27 @@ defmodule PhoenixTts.Audio do
     elevenlabs_client().get_history_audio(history_item_id)
   end
 
+  def subscription_overview do
+    case elevenlabs_client().get_subscription() do
+      {:ok, subscription} ->
+        used = subscription.character_count || 0
+        limit = subscription.character_limit || 0
+
+        {:ok,
+         %{
+           tier: subscription.tier,
+           status: subscription.status,
+           used_tokens: used,
+           total_tokens: limit,
+           remaining_tokens: max(limit - used, 0),
+           next_reset_unix: subscription.next_character_count_reset_unix
+         }}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
   def endpoint_catalog, do: EndpointCatalog.list()
 
   def storage_dir do

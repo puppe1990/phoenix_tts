@@ -48,6 +48,17 @@ defmodule PhoenixTts.AudioTest do
        ]}
     end
 
+    def get_subscription do
+      {:ok,
+       %{
+         tier: "creator",
+         status: "active",
+         character_count: 1_250,
+         character_limit: 10_000,
+         next_character_count_reset_unix: 1_743_086_400
+       }}
+    end
+
     def list_history(params \\ %{}) do
       case Map.get(params, :start_after_history_item_id) || Map.get(params, "start_after_history_item_id") do
         "hist_remote_1" ->
@@ -166,6 +177,8 @@ defmodule PhoenixTts.AudioTest do
     assert {:ok, %{has_more: true, last_history_item_id: "hist_remote_1"}} = Audio.remote_history_page()
     assert {:ok, %{items: [%{history_item_id: "hist_remote_2"}]}} =
              Audio.remote_history_page(%{start_after_history_item_id: "hist_remote_1"})
+    assert {:ok, %{remaining_tokens: 8_750, total_tokens: 10_000, used_tokens: 1_250}} =
+             Audio.subscription_overview()
 
     endpoint_slugs =
       Audio.endpoint_catalog()

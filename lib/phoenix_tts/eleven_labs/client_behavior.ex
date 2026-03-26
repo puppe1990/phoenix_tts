@@ -21,4 +21,15 @@ defmodule PhoenixTts.ElevenLabs.ClientBehaviour do
 
   @callback get_history_audio(String.t()) ::
               {:ok, %{audio: binary(), content_type: String.t() | nil}} | {:error, term()}
+
+  @callback get_subscription() ::
+              {:ok,
+               %{
+                 tier: String.t() | nil,
+                 character_count: integer() | nil,
+                 character_limit: integer() | nil,
+                 status: String.t() | nil,
+                 next_character_count_reset_unix: integer() | nil
+               }}
+              | {:error, term()}
 end

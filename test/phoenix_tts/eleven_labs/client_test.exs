@@ -186,4 +186,33 @@ defmodule PhoenixTts.ElevenLabs.ClientTest do
     assert {:ok, %{audio: "REMOTE-MP3", content_type: "audio/mpeg"}} =
              Client.get_history_audio("hist_123")
   end
+
+  test "get_subscription returns the current account usage", %{bypass: bypass} do
+    Bypass.expect_once(bypass, "GET", "/v1/user", fn conn ->
+      assert {"xi-api-key", "test-key"} in conn.req_headers
+
+      Plug.Conn.resp(
+        conn,
+        200,
+        Jason.encode!(%{
+          subscription: %{
+            tier: "creator",
+            status: "active",
+            character_count: 1_250,
+            character_limit: 10_000,
+            next_character_count_reset_unix: 1_743_086_400
+          }
+        })
+      )
+    end)
+
+    assert {:ok,
+            %{
+              tier: "creator",
+              status: "active",
+              character_count: 1_250,
+              character_limit: 10_000,
+              next_character_count_reset_unix: 1_743_086_400
+            }} = Client.get_subscription()
+  end
 end

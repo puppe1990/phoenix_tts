@@ -114,6 +114,30 @@ defmodule PhoenixTts.ElevenLabs.Client do
     end
   end
 
+  def get_subscription do
+    case api_key() do
+      nil ->
+        {:error, "Configure a variavel ELEVENLABS_API_KEY para consultar o saldo restante."}
+
+      key ->
+        with {:ok, response} <- Req.get(request(key), url: "/v1/user"),
+             {:ok, body} <- decode_json_body(response.body) do
+          subscription = body["subscription"] || %{}
+
+          {:ok,
+           %{
+             tier: subscription["tier"],
+             character_count: subscription["character_count"],
+             character_limit: subscription["character_limit"],
+             status: subscription["status"],
+             next_character_count_reset_unix: subscription["next_character_count_reset_unix"]
+           }}
+        else
+          {:error, reason} -> {:error, reason}
+        end
+    end
+  end
+
   defp request(api_key) do
     Req.new(
       base_url: Application.fetch_env!(:phoenix_tts, :elevenlabs_base_url),

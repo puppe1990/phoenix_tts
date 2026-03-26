@@ -10,12 +10,13 @@ defmodule PhoenixTtsWeb.AudioLive do
     models = Audio.available_models()
     form_attrs = default_form_attrs(voices, models)
     {remote_history, remote_history_cursor, remote_history_has_more} = load_remote_history()
+    subscription = load_subscription_overview()
 
     {:ok,
      socket
-     |> assign(:page_title, "ElevenLabs Audio Studio")
      |> assign(:voices, voices)
      |> assign(:models, models)
+     |> assign(:subscription, subscription)
      |> assign(:remote_history, remote_history)
      |> assign(:remote_history_cursor, remote_history_cursor)
      |> assign(:remote_history_has_more, remote_history_has_more)
@@ -30,6 +31,10 @@ defmodule PhoenixTtsWeb.AudioLive do
      |> assign(:model_box_open, false)
      |> assign(:language_box_open, false)
      |> assign_form(form_attrs)}
+  end
+
+  def handle_params(_params, _uri, socket) do
+    {:noreply, assign(socket, :page_title, page_title(socket.assigns.live_action))}
   end
 
   def handle_event("validate", %{"audio_generation" => params}, socket) do
@@ -95,18 +100,22 @@ defmodule PhoenixTtsWeb.AudioLive do
   end
 
   def handle_event("select_combobox", %{"field" => field, "value" => value}, socket) do
-    attrs =
-      case field do
-        "voice" -> Map.put(socket.assigns.form_attrs, "voice_id", value)
-        "model" -> Map.put(socket.assigns.form_attrs, "model_id", value)
-        "language" -> Map.put(socket.assigns.form_attrs, "language_code", value)
-      end
+    if blank?(value) do
+      {:noreply, close_all_comboboxes(socket)}
+    else
+      attrs =
+        case field do
+          "voice" -> Map.put(socket.assigns.form_attrs, "voice_id", value)
+          "model" -> Map.put(socket.assigns.form_attrs, "model_id", value)
+          "language" -> Map.put(socket.assigns.form_attrs, "language_code", value)
+        end
 
-    {:noreply,
-     socket
-     |> assign(:form_feedback, nil)
-     |> close_all_comboboxes()
-     |> assign_form(attrs)}
+      {:noreply,
+       socket
+       |> assign(:form_feedback, nil)
+       |> close_all_comboboxes()
+       |> assign_form(attrs)}
+    end
   end
 
   def handle_event("toggle_advanced", _params, socket) do
@@ -165,7 +174,97 @@ defmodule PhoenixTtsWeb.AudioLive do
     <Layouts.app flash={@flash}>
       <section class="px-4 pb-14 pt-6 sm:px-6 lg:px-8 lg:pb-20">
         <div class="mx-auto flex w-full max-w-7xl flex-col gap-8">
-          <section class="relative overflow-hidden rounded-[2rem] border border-white/10 bg-[#0b1325]/90 shadow-[0_40px_120px_rgba(0,0,0,0.45)]">
+          <header class="rounded-[2rem] border border-white/10 bg-[#0a1120]/90 px-5 py-5 sm:px-6">
+            <div class="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+              <div>
+                <p class="text-[11px] uppercase tracking-[0.28em] text-[#7fd6e8]/70">
+                  Phoenix TTS
+                </p>
+                <h1 class="mt-2 text-2xl font-semibold text-[#f7f1e8]">Operação ElevenLabs</h1>
+              </div>
+
+              <nav class="flex flex-wrap gap-3 text-sm">
+                <.link
+                  navigate={~p"/"}
+                  class={nav_link_class(@live_action == :index)}
+                >
+                  Studio
+                </.link>
+                <.link
+                  navigate={~p"/recentes"}
+                  class={nav_link_class(@live_action == :recentes)}
+                >
+                  Recentes
+                </.link>
+                <.link
+                  navigate={~p"/config"}
+                  class={nav_link_class(@live_action == :config)}
+                >
+                  Configuração
+                </.link>
+              </nav>
+            </div>
+          </header>
+
+          <section :if={@live_action == :config} class="grid gap-6">
+            <article class="rounded-[2rem] border border-white/10 bg-[#0a1120]/90 p-5 sm:p-6">
+              <div class="flex items-center justify-between gap-4">
+                <div>
+                  <p class="text-[11px] uppercase tracking-[0.28em] text-[#7fd6e8]/70">
+                    Configuração
+                  </p>
+                  <h2 class="mt-2 text-2xl font-semibold text-[#f7f1e8]">
+                    Tokens restantes
+                  </h2>
+                </div>
+                <div class="rounded-full border border-white/10 px-3 py-1 text-[11px] uppercase tracking-[0.2em] text-white/50">
+                  {subscription_status_label(@subscription)}
+                </div>
+              </div>
+
+              <div :if={@subscription} class="mt-6 grid gap-4 sm:grid-cols-3">
+                <div class="rounded-[1.4rem] border border-white/10 bg-white/[0.03] p-4">
+                  <p class="text-[11px] uppercase tracking-[0.2em] text-white/35">restantes</p>
+                  <p class="mt-2 text-3xl font-semibold text-[#7fd6e8]">
+                    {format_number(@subscription.remaining_tokens)}
+                  </p>
+                </div>
+                <div class="rounded-[1.4rem] border border-white/10 bg-white/[0.03] p-4">
+                  <p class="text-[11px] uppercase tracking-[0.2em] text-white/35">consumidos</p>
+                  <p class="mt-2 text-3xl font-semibold text-[#f7f1e8]">
+                    {format_number(@subscription.used_tokens)}
+                  </p>
+                </div>
+                <div class="rounded-[1.4rem] border border-white/10 bg-white/[0.03] p-4">
+                  <p class="text-[11px] uppercase tracking-[0.2em] text-white/35">limite</p>
+                  <p class="mt-2 text-3xl font-semibold text-[#f7f1e8]">
+                    {format_number(@subscription.total_tokens)}
+                  </p>
+                </div>
+              </div>
+
+              <div :if={@subscription} class="mt-4 flex flex-wrap gap-3 text-sm text-white/58">
+                <span class="rounded-full border border-white/10 px-3 py-2">
+                  Plano {String.upcase(@subscription.tier || "unknown")}
+                </span>
+                <span class="rounded-full border border-white/10 px-3 py-2">
+                  Reset {reset_label(@subscription.next_reset_unix)}
+                </span>
+              </div>
+
+              <div
+                :if={is_nil(@subscription)}
+                class="mt-6 rounded-[1.4rem] border border-dashed border-white/10 p-5 text-sm text-white/50"
+              >
+                Não foi possível consultar o saldo restante da conta agora.
+              </div>
+            </article>
+          </section>
+
+          <section
+            :if={@live_action == :index}
+            class="relative overflow-hidden rounded-[2rem] border border-white/10 bg-[#0b1325]/90 shadow-[0_40px_120px_rgba(0,0,0,0.45)]"
+          >
             <div class="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,184,120,0.16),transparent_26%),radial-gradient(circle_at_75%_20%,rgba(106,224,255,0.16),transparent_22%)]" />
             <div class="relative p-5 sm:p-8 xl:p-10">
               <div class="mx-auto max-w-5xl rounded-[1.9rem] border border-white/10 bg-[#08101f]/88 p-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] sm:p-8 xl:p-10">
@@ -397,7 +496,7 @@ defmodule PhoenixTtsWeb.AudioLive do
             </div>
           </section>
 
-          <section class="grid gap-6 xl:grid-cols-[0.82fr_1.18fr]">
+          <section :if={@live_action != :config} class="grid gap-6 xl:grid-cols-[0.82fr_1.18fr]">
             <aside class="overflow-hidden rounded-[2rem] border border-white/10 bg-[#0a1120]/90">
               <div class="border-b border-white/10 px-5 py-5 sm:px-6">
                 <div class="flex items-center justify-between gap-3">
@@ -454,7 +553,10 @@ defmodule PhoenixTtsWeb.AudioLive do
             </aside>
 
             <div class="grid gap-6">
-              <section class="rounded-[2rem] border border-white/10 bg-[#0a1120]/90 p-5 sm:p-6">
+              <section
+                :if={@live_action == :recentes}
+                class="rounded-[2rem] border border-white/10 bg-[#0a1120]/90 p-5 sm:p-6"
+              >
                 <div class="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <p class="text-[11px] uppercase tracking-[0.28em] text-[#7fd6e8]/70">
@@ -881,9 +983,9 @@ defmodule PhoenixTtsWeb.AudioLive do
 
   defp assign_combobox_defaults(socket, attrs) do
     socket
-    |> assign(:voice_query, summary_voice(socket.assigns.voices, attrs["voice_id"]))
-    |> assign(:model_query, summary_model(socket.assigns.models, attrs["model_id"]))
-    |> assign(:language_query, summary_language(attrs["language_code"]))
+    |> assign(:voice_query, combobox_voice_value(socket.assigns.voices, attrs["voice_id"]))
+    |> assign(:model_query, combobox_model_value(socket.assigns.models, attrs["model_id"]))
+    |> assign(:language_query, combobox_language_value(attrs["language_code"]))
   end
 
   defp toggle_combobox(socket, "voice", open), do: assign(socket, :voice_box_open, open)
@@ -895,13 +997,28 @@ defmodule PhoenixTtsWeb.AudioLive do
   defp assign_combobox_query(socket, "language", value), do: assign(socket, :language_query, value)
 
   defp reset_combobox_query(socket, "voice"),
-    do: assign(socket, :voice_query, summary_voice(socket.assigns.voices, socket.assigns.form_attrs["voice_id"]))
+    do:
+      assign(
+        socket,
+        :voice_query,
+        combobox_voice_value(socket.assigns.voices, socket.assigns.form_attrs["voice_id"])
+      )
 
   defp reset_combobox_query(socket, "model"),
-    do: assign(socket, :model_query, summary_model(socket.assigns.models, socket.assigns.form_attrs["model_id"]))
+    do:
+      assign(
+        socket,
+        :model_query,
+        combobox_model_value(socket.assigns.models, socket.assigns.form_attrs["model_id"])
+      )
 
   defp reset_combobox_query(socket, "language"),
-    do: assign(socket, :language_query, summary_language(socket.assigns.form_attrs["language_code"]))
+    do:
+      assign(
+        socket,
+        :language_query,
+        combobox_language_value(socket.assigns.form_attrs["language_code"])
+      )
 
   defp close_all_comboboxes(socket) do
     socket
@@ -911,15 +1028,36 @@ defmodule PhoenixTtsWeb.AudioLive do
   end
 
   defp active_voice_query(query, voices, selected_id) do
-    if query == summary_voice(voices, selected_id), do: "", else: query
+    if query == combobox_voice_value(voices, selected_id), do: "", else: query
   end
 
   defp active_model_query(query, models, selected_id) do
-    if query == summary_model(models, selected_id), do: "", else: query
+    if query == combobox_model_value(models, selected_id), do: "", else: query
   end
 
   defp active_language_query(query, selected_code) do
-    if query == summary_language(selected_code), do: "", else: query
+    if query == combobox_language_value(selected_code), do: "", else: query
+  end
+
+  defp combobox_voice_value(voices, voice_id) do
+    case Enum.find(voices, &(&1.id == voice_id)) do
+      nil -> ""
+      voice -> voice.name
+    end
+  end
+
+  defp combobox_model_value(models, model_id) do
+    case Enum.find(models, &(&1.id == model_id)) do
+      nil -> ""
+      model -> model.name
+    end
+  end
+
+  defp combobox_language_value(language_code) do
+    case Enum.find(language_options(), fn {_label, value} -> value == language_code end) do
+      nil -> ""
+      {label, _value} -> label
+    end
   end
 
   defp load_remote_history do
@@ -932,6 +1070,13 @@ defmodule PhoenixTtsWeb.AudioLive do
     end
   end
 
+  defp load_subscription_overview do
+    case Audio.subscription_overview() do
+      {:ok, subscription} -> subscription
+      {:error, _reason} -> nil
+    end
+  end
+
   defp history_cursor([], last_history_item_id, fallback), do: last_history_item_id || fallback
 
   defp history_cursor(items, last_history_item_id, _fallback) do
@@ -940,6 +1085,39 @@ defmodule PhoenixTtsWeb.AudioLive do
       _ -> last_history_item_id
     end
   end
+
+  defp nav_link_class(true) do
+    "rounded-full border border-[#7fd6e8]/35 bg-[#0f1b31] px-4 py-2 font-semibold text-[#7fd6e8]"
+  end
+
+  defp nav_link_class(false) do
+    "rounded-full border border-white/10 px-4 py-2 text-white/60 transition hover:border-[#7fd6e8]/35 hover:text-[#f7f1e8]"
+  end
+
+  defp subscription_status_label(nil), do: "indisponível"
+  defp subscription_status_label(subscription), do: subscription.status || "status desconhecido"
+
+  defp format_number(number) when is_integer(number) do
+    number
+    |> Integer.to_string()
+    |> String.reverse()
+    |> String.replace(~r/(.{3})(?=.)/, "\\1.")
+    |> String.reverse()
+  end
+
+  defp format_number(_), do: "-"
+
+  defp reset_label(nil), do: "sem data"
+
+  defp reset_label(unix) when is_integer(unix) do
+    unix
+    |> DateTime.from_unix!()
+    |> Calendar.strftime("%d/%m/%Y %H:%M")
+  end
+
+  defp page_title(:recentes), do: "Itens recentes"
+  defp page_title(:config), do: "Configuração"
+  defp page_title(_), do: "ElevenLabs Audio Studio"
 
   defp character_count(text), do: text |> to_string() |> String.length()
 
