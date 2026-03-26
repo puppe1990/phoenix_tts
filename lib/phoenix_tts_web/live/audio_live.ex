@@ -63,77 +63,31 @@ defmodule PhoenixTtsWeb.AudioLive do
         <div class="mx-auto flex w-full max-w-7xl flex-col gap-8">
           <section class="relative overflow-hidden rounded-[2rem] border border-white/10 bg-[#0b1325]/90 shadow-[0_40px_120px_rgba(0,0,0,0.45)]">
             <div class="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,184,120,0.16),transparent_26%),radial-gradient(circle_at_75%_20%,rgba(106,224,255,0.16),transparent_22%)]" />
-            <div class="relative grid gap-6 p-5 sm:p-8 xl:grid-cols-[1.2fr_0.8fr] xl:p-10">
-              <div class="flex flex-col justify-between">
-                <div>
-                  <div class="flex flex-wrap items-center gap-3">
-                    <span class="rounded-full border border-[#f29c6b]/30 bg-[#f29c6b]/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.28em] text-[#ffd4bd]">
-                      LiveView + ElevenLabs
-                    </span>
-                    <span class="rounded-full border border-white/10 px-3 py-1 text-[11px] uppercase tracking-[0.28em] text-white/55">
-                      Elixir {System.version()} / Phoenix {Application.spec(:phoenix, :vsn)}
-                    </span>
-                  </div>
-
-                  <div class="mt-8 max-w-3xl">
-                    <p class="text-sm uppercase tracking-[0.3em] text-[#7fd6e8]/70">
-                      Studio de narração
-                    </p>
-                    <h1 class="mt-3 font-['Iowan_Old_Style','Palatino_Linotype','Book_Antiqua',serif] text-5xl font-semibold leading-[0.95] text-[#f7f1e8] sm:text-6xl xl:text-7xl">
-                      ElevenLabs <br /> Audio Studio
-                    </h1>
-                    <p class="mt-6 max-w-2xl text-base leading-7 text-[#d6d0c7]/78 sm:text-lg">
-                      Gere áudios em português com uma interface que prioriza texto, voz e playback sem esmagar a tela inteira num card estreito.
-                    </p>
-                  </div>
-
-                  <div class="mt-8 grid gap-3 sm:grid-cols-3">
-                    <div class="rounded-[1.5rem] border border-white/10 bg-white/[0.04] p-4">
-                      <p class="text-[11px] uppercase tracking-[0.28em] text-white/45">Vozes</p>
-                      <p class="mt-3 text-3xl font-semibold text-[#f7f1e8]">{length(@voices)}</p>
-                      <p class="mt-1 text-sm text-white/55">sincronizadas no banco</p>
-                    </div>
-                    <div class="rounded-[1.5rem] border border-white/10 bg-white/[0.04] p-4">
-                      <p class="text-[11px] uppercase tracking-[0.28em] text-white/45">Modelos</p>
-                      <p class="mt-3 text-3xl font-semibold text-[#f7f1e8]">{length(@models)}</p>
-                      <p class="mt-1 text-sm text-white/55">{hero_model_label(@models)}</p>
-                    </div>
-                    <div class="rounded-[1.5rem] border border-white/10 bg-white/[0.04] p-4">
-                      <p class="text-[11px] uppercase tracking-[0.28em] text-white/45">
-                        Histórico remoto
-                      </p>
-                      <p class="mt-3 text-3xl font-semibold text-[#f7f1e8]">
-                        {length(@remote_history)}
-                      </p>
-                      <p class="mt-1 text-sm text-white/55">itens recentes da API</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div class="mt-10 flex flex-wrap gap-3 text-xs uppercase tracking-[0.24em] text-white/45">
-                  <span class="rounded-full border border-white/10 px-3 py-2">SQLite local</span>
-                  <span class="rounded-full border border-white/10 px-3 py-2">Playback imediato</span>
-                  <span class="rounded-full border border-white/10 px-3 py-2">Fluxo pt-BR</span>
-                </div>
-              </div>
-
-              <div class="rounded-[1.75rem] border border-white/10 bg-[#08101f]/85 p-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)] sm:p-6">
-                <div class="flex items-center justify-between gap-3">
-                  <div>
-                    <p class="text-[11px] uppercase tracking-[0.28em] text-[#7fd6e8]/70">
+            <div class="relative p-5 sm:p-8 xl:p-10">
+              <div class="mx-auto max-w-5xl rounded-[1.9rem] border border-white/10 bg-[#08101f]/88 p-6 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] sm:p-8 xl:p-10">
+                <div class="flex flex-col gap-6 border-b border-white/10 pb-6 sm:flex-row sm:items-end sm:justify-between">
+                  <div class="max-w-3xl">
+                    <p class="text-[11px] font-semibold uppercase tracking-[0.3em] text-[#7fd6e8]/70">
                       Nova geração
                     </p>
-                    <h2 class="mt-2 text-2xl font-semibold text-[#f7f1e8]">Enviar texto</h2>
+                    <h1 class="mt-3 font-['Iowan_Old_Style','Palatino_Linotype','Book_Antiqua',serif] text-4xl font-semibold leading-none text-[#f7f1e8] sm:text-5xl">
+                      Transforme texto em voz
+                    </h1>
+                    <p class="mt-4 text-base leading-7 text-[#d6d0c7]/72 sm:text-lg">
+                      Escolha a voz, ajuste o modelo e gere o áudio sem ruído visual desnecessário.
+                    </p>
                   </div>
-                  <div class="rounded-full border border-white/10 px-3 py-1 text-[11px] uppercase tracking-[0.22em] text-white/45">
-                    até 5.000 chars
+
+                  <div class="flex flex-wrap gap-3 text-xs uppercase tracking-[0.22em] text-white/42">
+                    <span class="rounded-full border border-white/10 px-3 py-2">até 5.000 chars</span>
+                    <span class="rounded-full border border-white/10 px-3 py-2">playback local</span>
                   </div>
                 </div>
 
                 <.form
                   for={@form}
                   id="tts-form"
-                  class="mt-6 space-y-5"
+                  class="mt-6 space-y-6"
                   phx-change="validate"
                   phx-submit="save"
                 >
@@ -141,48 +95,67 @@ defmodule PhoenixTtsWeb.AudioLive do
                     field={@form[:text]}
                     type="textarea"
                     label="Texto"
-                    rows="9"
+                    rows="8"
                     placeholder="Cole aqui o texto que será enviado para a ElevenLabs."
-                    class="min-h-56 rounded-[1.4rem] border border-white/10 bg-[#111b2f] text-[#f7f1e8] placeholder:text-white/30"
+                    class="min-h-52 w-full rounded-[1.6rem] border border-white/10 bg-[linear-gradient(180deg,#10192d_0%,#0c1527_100%)] px-5 py-4 text-base leading-7 text-[#f7f1e8] placeholder:text-white/28"
                   />
 
-                  <div class="grid gap-4 sm:grid-cols-2">
-                    <.input
-                      field={@form[:voice_id]}
-                      type="text"
-                      label="Voice ID"
-                      placeholder="ex: voice_br"
-                      class="rounded-[1.2rem] border border-white/10 bg-[#111b2f] text-[#f7f1e8] placeholder:text-white/30"
-                    />
-                    <.input
-                      field={@form[:model_id]}
-                      type="select"
-                      label="Modelo"
-                      options={Enum.map(@models, &{"#{&1.name}", &1.id})}
-                      class="rounded-[1.2rem] border border-white/10 bg-[#111b2f] text-[#f7f1e8]"
-                    />
+                  <div class="grid gap-4 md:grid-cols-2">
+                    <div class="rounded-[1.45rem] border border-white/8 bg-white/[0.02] p-4">
+                      <.input
+                        field={@form[:voice_id]}
+                        type="text"
+                        label="Voice ID"
+                        placeholder="ex: voice_br"
+                        class="rounded-[1.1rem] border border-white/10 bg-[#111b2f] px-4 py-3 text-[#f7f1e8] placeholder:text-white/30"
+                      />
+                    </div>
+
+                    <div class="rounded-[1.45rem] border border-white/8 bg-white/[0.02] p-4">
+                      <.input
+                        field={@form[:model_id]}
+                        type="select"
+                        label="Modelo"
+                        options={Enum.map(@models, &{"#{&1.name}", &1.id})}
+                        class="rounded-[1.1rem] border border-white/10 bg-[#111b2f] px-4 py-3 text-[#f7f1e8]"
+                      />
+                    </div>
+
+                    <div class="rounded-[1.45rem] border border-white/8 bg-white/[0.02] p-4">
+                      <.input
+                        field={@form[:output_format]}
+                        type="select"
+                        label="Output format"
+                        options={output_formats()}
+                        class="rounded-[1.1rem] border border-white/10 bg-[#111b2f] px-4 py-3 text-[#f7f1e8]"
+                      />
+                    </div>
+
+                    <div class="rounded-[1.45rem] border border-white/8 bg-white/[0.02] p-4">
+                      <.input
+                        field={@form[:language_code]}
+                        type="text"
+                        label="Language code"
+                        placeholder="pt"
+                        class="rounded-[1.1rem] border border-white/10 bg-[#111b2f] px-4 py-3 text-[#f7f1e8] placeholder:text-white/30"
+                      />
+                    </div>
                   </div>
 
-                  <div class="grid gap-4 sm:grid-cols-2">
-                    <.input
-                      field={@form[:output_format]}
-                      type="select"
-                      label="Output format"
-                      options={output_formats()}
-                      class="rounded-[1.2rem] border border-white/10 bg-[#111b2f] text-[#f7f1e8]"
-                    />
-                    <.input
-                      field={@form[:language_code]}
-                      type="text"
-                      label="Language code"
-                      placeholder="pt"
-                      class="rounded-[1.2rem] border border-white/10 bg-[#111b2f] text-[#f7f1e8] placeholder:text-white/30"
-                    />
-                  </div>
+                  <div class="flex flex-col gap-4 border-t border-white/10 pt-5 lg:flex-row lg:items-center lg:justify-between">
+                    <div>
+                      <p class="text-sm font-medium text-white/58">
+                        O áudio será salvo localmente e aparecerá no histórico logo abaixo.
+                      </p>
+                      <p class="mt-1 text-xs uppercase tracking-[0.2em] text-white/30">
+                        Geração imediata com persistência local
+                      </p>
+                    </div>
 
-                  <button class="inline-flex w-full items-center justify-center rounded-full bg-[#7fe3f5] px-5 py-4 text-sm font-semibold uppercase tracking-[0.18em] text-[#07111f] transition hover:bg-[#a2edfa]">
-                    Gerar áudio
-                  </button>
+                    <button class="inline-flex w-full items-center justify-center rounded-full bg-[#7fe3f5] px-8 py-4 text-sm font-semibold uppercase tracking-[0.18em] text-[#07111f] transition hover:bg-[#a2edfa] lg:w-auto lg:min-w-72">
+                      Gerar áudio
+                    </button>
+                  </div>
                 </.form>
               </div>
             </div>
@@ -376,9 +349,6 @@ defmodule PhoenixTtsWeb.AudioLive do
 
   defp first_model_id([%{id: id} | _]), do: id
   defp first_model_id(_), do: nil
-
-  defp hero_model_label([model | _]), do: model.name
-  defp hero_model_label(_), do: "sem catálogo"
 
   defp voice_category_label(nil), do: "voice"
   defp voice_category_label(value), do: value
