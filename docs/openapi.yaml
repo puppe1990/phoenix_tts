@@ -1,0 +1,511 @@
+openapi: 3.1.0
+info:
+  title: PhoenixTts API
+  version: 1.0.0
+  description: API HTTP para geração e consulta de áudio no PhoenixTts.
+servers:
+  - url: http://localhost:4000/api
+    description: Ambiente local
+tags:
+  - name: Catalog
+  - name: History
+  - name: Generations
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: API token
+  parameters:
+    DownloadParam:
+      in: query
+      name: download
+      required: false
+      schema:
+        type: string
+        enum: ["1"]
+      description: Quando informado com valor `1`, retorna `content-disposition: attachment`.
+    HistoryItemId:
+      in: path
+      name: history_item_id
+      required: true
+      schema:
+        type: string
+    GenerationId:
+      in: path
+      name: id
+      required: true
+      schema:
+        type: integer
+  schemas:
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required: [error]
+    ValidationErrorResponse:
+      type: object
+      properties:
+        errors:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+      required: [errors]
+    Voice:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        category:
+          type: string
+          nullable: true
+        labels:
+          type: object
+          additionalProperties: true
+      required: [id, name, labels]
+    Model:
+      type: object
+      additionalProperties: true
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        can_do_text_to_speech:
+          type: boolean
+    SubscriptionOverview:
+      type: object
+      properties:
+        tier:
+          type: string
+          nullable: true
+        status:
+          type: string
+          nullable: true
+        used_credits:
+          type: integer
+        total_credits:
+          type: integer
+        remaining_credits:
+          type: integer
+        next_reset_unix:
+          type: integer
+          nullable: true
+      required: [used_credits, total_credits, remaining_credits]
+    HistoryItem:
+      type: object
+      additionalProperties: true
+      properties:
+        history_item_id:
+          type: string
+        request_id:
+          type: string
+        voice_id:
+          type: string
+        model_id:
+          type: string
+        text:
+          type: string
+        date_unix:
+          type: integer
+        character_count_change_to:
+          type: integer
+    HistoryPage:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/HistoryItem'
+        has_more:
+          type: boolean
+        last_history_item_id:
+          type: string
+          nullable: true
+      required: [items]
+    Generation:
+      type: object
+      properties:
+        id:
+          type: integer
+        text:
+          type: string
+        voice_id:
+          type: string
+        model_id:
+          type: string
+        output_format:
+          type: string
+        language_code:
+          type: string
+          nullable: true
+        quality_preset:
+          type: string
+          nullable: true
+          enum: [high, balanced, consistent, null]
+        stability:
+          type: number
+          format: float
+          nullable: true
+        similarity_boost:
+          type: number
+          format: float
+          nullable: true
+        style:
+          type: number
+          format: float
+          nullable: true
+        speaker_boost:
+          type: boolean
+          nullable: true
+        character_count:
+          type: integer
+        content_type:
+          type: string
+        request_id:
+          type: string
+          nullable: true
+        remote_history_item_id:
+          type: string
+          nullable: true
+        audio_url:
+          type: string
+        inserted_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+      required:
+        - id
+        - text
+        - voice_id
+        - model_id
+        - output_format
+        - character_count
+        - content_type
+        - audio_url
+        - inserted_at
+        - updated_at
+    CreateGenerationRequest:
+      type: object
+      properties:
+        text:
+          type: string
+          minLength: 10
+          maxLength: 10000
+        voice_id:
+          type: string
+        model_id:
+          type: string
+        output_format:
+          type: string
+        language_code:
+          type: string
+        quality_preset:
+          type: string
+          enum: [high, balanced, consistent]
+        stability:
+          type: number
+          minimum: 0
+          maximum: 1
+        similarity_boost:
+          type: number
+          minimum: 0
+          maximum: 1
+        style:
+          type: number
+          minimum: 0
+          maximum: 1
+        speaker_boost:
+          type: boolean
+      required: [text, voice_id, model_id, output_format]
+    VoicesResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Voice'
+      required: [data]
+    ModelsResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Model'
+      required: [data]
+    SubscriptionResponse:
+      type: object
+      properties:
+        data:
+          $ref: '#/components/schemas/SubscriptionOverview'
+      required: [data]
+    HistoryResponse:
+      type: object
+      properties:
+        data:
+          $ref: '#/components/schemas/HistoryPage'
+      required: [data]
+    GenerationResponse:
+      type: object
+      properties:
+        data:
+          $ref: '#/components/schemas/Generation'
+      required: [data]
+    GenerationsResponse:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Generation'
+      required: [data]
+security:
+  - bearerAuth: []
+paths:
+  /voices:
+    get:
+      tags: [Catalog]
+      summary: Lista vozes disponíveis
+      responses:
+        '200':
+          description: Lista de vozes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VoicesResponse'
+        '401':
+          description: Token ausente ou inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /models:
+    get:
+      tags: [Catalog]
+      summary: Lista modelos de TTS
+      responses:
+        '200':
+          description: Lista de modelos
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ModelsResponse'
+        '401':
+          description: Token ausente ou inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /subscription:
+    get:
+      tags: [Catalog]
+      summary: Retorna o resumo da assinatura
+      responses:
+        '200':
+          description: Resumo da assinatura
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SubscriptionResponse'
+        '401':
+          description: Token ausente ou inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: Falha na integração externa
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /history:
+    get:
+      tags: [History]
+      summary: Lista histórico remoto da ElevenLabs
+      parameters:
+        - in: query
+          name: page_size
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+        - in: query
+          name: start_after_history_item_id
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Página de histórico remoto
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HistoryResponse'
+        '401':
+          description: Token ausente ou inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: Falha na integração externa
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /history/{history_item_id}/audio:
+    get:
+      tags: [History]
+      summary: Faz stream do áudio remoto do histórico
+      parameters:
+        - $ref: '#/components/parameters/HistoryItemId'
+        - $ref: '#/components/parameters/DownloadParam'
+      responses:
+        '200':
+          description: Áudio MP3
+          content:
+            audio/mpeg:
+              schema:
+                type: string
+                format: binary
+        '401':
+          description: Token ausente ou inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '502':
+          description: Falha na integração externa
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /generations:
+    get:
+      tags: [Generations]
+      summary: Lista gerações locais
+      responses:
+        '200':
+          description: Lista de gerações
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenerationsResponse'
+        '401':
+          description: Token ausente ou inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+    post:
+      tags: [Generations]
+      summary: Cria uma nova geração
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateGenerationRequest'
+            examples:
+              default:
+                value:
+                  text: Teste de áudio para integração externa.
+                  voice_id: voice_br
+                  model_id: eleven_multilingual_v2
+                  output_format: mp3_44100_128
+                  language_code: pt
+                  quality_preset: high
+      responses:
+        '201':
+          description: Geração criada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenerationResponse'
+        '401':
+          description: Token ausente ou inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '422':
+          description: Payload inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationErrorResponse'
+        '502':
+          description: Falha na integração externa
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /generations/{id}:
+    get:
+      tags: [Generations]
+      summary: Retorna uma geração local
+      parameters:
+        - $ref: '#/components/parameters/GenerationId'
+      responses:
+        '200':
+          description: Geração encontrada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenerationResponse'
+        '401':
+          description: Token ausente ou inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Geração inexistente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /generations/{id}/audio:
+    get:
+      tags: [Generations]
+      summary: Faz stream do áudio local
+      parameters:
+        - $ref: '#/components/parameters/GenerationId'
+        - $ref: '#/components/parameters/DownloadParam'
+      responses:
+        '200':
+          description: Áudio MP3
+          content:
+            audio/mpeg:
+              schema:
+                type: string
+                format: binary
+        '401':
+          description: Token ausente ou inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '404':
+          description: Geração inexistente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Falha ao carregar áudio legado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'

@@ -14,7 +14,8 @@ config :phoenix_tts,
   elevenlabs_default_model: "eleven_multilingual_v2",
   elevenlabs_default_output_format: "mp3_44100_128",
   elevenlabs_client: PhoenixTts.ElevenLabs.Client,
-  audio_storage_dir: Path.expand("../priv/static/generated", __DIR__)
+  audio_storage_dir: Path.expand("../priv/static/generated", __DIR__),
+  api_allowed_origins: ["http://localhost:3000", "http://localhost:5173"]
 
 # Configure the endpoint
 config :phoenix_tts, PhoenixTtsWeb.Endpoint,

@@ -12,11 +12,16 @@ defmodule PhoenixTtsWeb.Router do
 
   pipeline :api do
     plug :accepts, ["json"]
+    plug PhoenixTtsWeb.Plugs.ApiCors
+    plug PhoenixTtsWeb.Plugs.ApiAuth
   end
 
   scope "/", PhoenixTtsWeb do
     pipe_through :browser
 
+    get "/openapi.yaml", PageController, :openapi
+    get "/api-docs", PageController, :api_docs
+    get "/api-docs.md", PageController, :api_markdown
     get "/history/:history_item_id/audio", HistoryAudioController, :show
     get "/generations/:id/audio", GenerationAudioController, :show
     live "/", AudioLive, :index
@@ -25,10 +30,20 @@ defmodule PhoenixTtsWeb.Router do
     live "/config", AudioLive, :config
   end
 
-  # Other scopes may use custom stacks.
-  # scope "/api", PhoenixTtsWeb do
-  #   pipe_through :api
-  # end
+  scope "/api", PhoenixTtsWeb do
+    pipe_through :api
+
+    options "/*path", AudioApiController, :options
+    get "/voices", AudioApiController, :voices
+    get "/models", AudioApiController, :models
+    get "/subscription", AudioApiController, :subscription
+    get "/history", AudioApiController, :history
+    get "/history/:history_item_id/audio", AudioApiController, :history_audio
+    get "/generations", AudioApiController, :index
+    get "/generations/:id", AudioApiController, :show
+    get "/generations/:id/audio", AudioApiController, :generation_audio
+    post "/generations", AudioApiController, :create
+  end
 
   # Enable LiveDashboard and Swoosh mailbox preview in development
   if Application.compile_env(:phoenix_tts, :dev_routes) do

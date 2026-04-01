@@ -62,6 +62,17 @@ database_ssl =
     _ -> false
   end
 
+api_allowed_origins =
+  case System.get_env("API_ALLOWED_ORIGINS") do
+    nil ->
+      Application.get_env(:phoenix_tts, :api_allowed_origins, [])
+
+    value ->
+      value
+      |> String.split(",", trim: true)
+      |> Enum.map(&String.trim/1)
+  end
+
 config :phoenix_tts, PhoenixTtsWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
@@ -72,6 +83,8 @@ config :phoenix_tts,
     String.to_integer(System.get_env("ELEVENLABS_RECEIVE_TIMEOUT", "60000")),
   elevenlabs_default_output_format:
     System.get_env("ELEVENLABS_DEFAULT_OUTPUT_FORMAT") || "mp3_44100_128",
+  api_auth_token: System.get_env("API_AUTH_TOKEN"),
+  api_allowed_origins: api_allowed_origins,
   audio_storage_dir:
     System.get_env("AUDIO_STORAGE_DIR") ||
       Path.expand("../priv/static/generated", __DIR__)

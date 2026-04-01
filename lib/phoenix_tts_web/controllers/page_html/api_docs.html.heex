@@ -1,0 +1,109 @@
+<Layouts.app flash={@flash}>
+  <section class="mx-auto min-h-screen max-w-6xl px-6 py-10 sm:px-10 lg:px-12">
+    <div class="grid gap-8 lg:grid-cols-[1.2fr_0.8fr]">
+      <div class="overflow-hidden rounded-[2rem] border border-white/10 bg-white/5 shadow-[0_30px_120px_rgba(0,0,0,0.35)] backdrop-blur">
+        <div class="border-b border-white/10 bg-[linear-gradient(135deg,rgba(210,118,83,0.28),rgba(64,162,186,0.16))] px-8 py-8">
+          <div class="flex items-center gap-3 text-sm text-white/70">
+            <span class="inline-flex items-center rounded-full border border-emerald-300/30 bg-emerald-300/10 px-3 py-1 font-medium text-emerald-100">
+              API ativa
+            </span>
+            <span class="font-mono text-xs tracking-[0.2em] text-white/55">OPENAPI 3.1</span>
+          </div>
+
+          <h1 class="mt-5 text-4xl font-semibold tracking-tight text-white sm:text-5xl">
+            Integre o PhoenixTts por HTTP sem depender da interface web.
+          </h1>
+
+          <p class="mt-4 max-w-2xl text-base leading-7 text-white/75">
+            Use a especificação OpenAPI para importar a API no Swagger Editor, Postman ou no seu cliente favorito.
+          </p>
+        </div>
+
+        <div class="grid gap-6 px-8 py-8 sm:grid-cols-2">
+          <div class="rounded-3xl border border-white/10 bg-[#091321]/80 p-6">
+            <p class="text-xs uppercase tracking-[0.22em] text-cyan-100/60">Arquivo bruto</p>
+            <p class="mt-3 font-mono text-sm text-cyan-50">{@openapi_url}</p>
+            <div class="mt-5 flex flex-wrap gap-3">
+              <.link
+                id="openapi-download-link"
+                href={@openapi_url}
+                class="inline-flex items-center gap-2 rounded-full bg-[#d27653] px-5 py-3 text-sm font-semibold text-white transition hover:bg-[#e38b6c]"
+              >
+                <.icon name="hero-arrow-down-tray" class="size-4" /> Baixar `openapi.yaml`
+              </.link>
+              <a
+                id="swagger-editor-link"
+                href="https://editor.swagger.io/"
+                target="_blank"
+                rel="noreferrer"
+                class="inline-flex items-center gap-2 rounded-full border border-white/15 px-5 py-3 text-sm font-semibold text-white/80 transition hover:border-white/30 hover:text-white"
+              >
+                <.icon name="hero-arrow-top-right-on-square" class="size-4" />
+                Abrir Swagger Editor
+              </a>
+            </div>
+          </div>
+
+          <div class="rounded-3xl border border-white/10 bg-[#091321]/80 p-6">
+            <p class="text-xs uppercase tracking-[0.22em] text-cyan-100/60">Base local</p>
+            <p class="mt-3 font-mono text-sm text-cyan-50">{@api_base_url}</p>
+            <ul class="mt-5 space-y-3 text-sm leading-6 text-white/75">
+              <li class="flex gap-3">
+                <.icon name="hero-lock-closed" class="mt-0.5 size-4 shrink-0 text-cyan-200" />
+                Autenticação `Bearer` via `API_AUTH_TOKEN`
+              </li>
+              <li class="flex gap-3">
+                <.icon name="hero-globe-alt" class="mt-0.5 size-4 shrink-0 text-cyan-200" />
+                CORS configurável com `API_ALLOWED_ORIGINS`
+              </li>
+              <li class="flex gap-3">
+                <.icon name="hero-speaker-wave" class="mt-0.5 size-4 shrink-0 text-cyan-200" />
+                Endpoints para catálogo, histórico e geração de áudio
+              </li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="space-y-6">
+        <div class="rounded-[2rem] border border-white/10 bg-[#08111d]/85 p-7">
+          <p class="text-xs uppercase tracking-[0.22em] text-white/45">Fluxo sugerido</p>
+          <ol class="mt-4 space-y-4 text-sm leading-6 text-white/75">
+            <li>
+              1. Baixe [openapi.yaml](/Users/matheuspuppe/Desktop/Projetos/github/text-to-speech/phoenix_tts/docs/openapi.yaml) pelo link acima ou via `GET /openapi.yaml`.
+            </li>
+            <li>
+              2. Importe o arquivo no Swagger Editor ou Postman.
+            </li>
+            <li>
+              3. Configure o header `Authorization: Bearer ...` se `API_AUTH_TOKEN` estiver ativo.
+            </li>
+            <li>
+              4. Faça chamadas em `{@api_base_url}` para `voices`, `models`, `history` e `generations`.
+            </li>
+          </ol>
+        </div>
+
+        <div class="rounded-[2rem] border border-white/10 bg-[#08111d]/85 p-7">
+          <p class="text-xs uppercase tracking-[0.22em] text-white/45">Atalhos</p>
+          <div class="mt-4 flex flex-col gap-3 text-sm">
+            <.link
+              id="api-markdown-doc-link"
+              href={~p"/api-docs.md"}
+              class="rounded-2xl border border-white/10 px-4 py-3 text-white/80 transition hover:border-white/25 hover:text-white"
+            >
+              Ver doc textual em `GET /api-docs.md`
+            </.link>
+            <.link
+              id="app-home-link"
+              navigate={~p"/"}
+              class="rounded-2xl border border-white/10 px-4 py-3 text-white/80 transition hover:border-white/25 hover:text-white"
+            >
+              Voltar para o app
+            </.link>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+</Layouts.app>

@@ -93,6 +93,12 @@ mix test
 mix precommit
 ```
 
+## Documentação da API
+
+A documentação HTTP separada da API está em [docs/API.md](docs/API.md).
+A especificação OpenAPI está em [docs/openapi.yaml](docs/openapi.yaml).
+No app em execução, elas também ficam disponíveis em [http://localhost:4000/api-docs](http://localhost:4000/api-docs), [http://localhost:4000/api-docs.md](http://localhost:4000/api-docs.md) e [http://localhost:4000/openapi.yaml](http://localhost:4000/openapi.yaml).
+
 ## Deploy no Gigalixir
 
 O projeto está preparado para rodar no modelo recomendado de Phoenix Releases do Gigalixir:
