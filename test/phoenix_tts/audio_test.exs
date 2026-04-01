@@ -144,10 +144,19 @@ defmodule PhoenixTts.AudioTest do
     assert opts[:model_id] == "eleven_multilingual_v2"
     assert opts[:output_format] == "mp3_44100_128"
     assert opts[:language_code] == "pt"
+
+    assert opts[:voice_settings] == %{
+             stability: 0.35,
+             similarity_boost: 0.9,
+             style: 0.15,
+             use_speaker_boost: true
+           }
+
     assert generation.voice_id == "voice_br"
     assert generation.model_id == "eleven_multilingual_v2"
     assert generation.output_format == "mp3_44100_128"
     assert generation.language_code == "pt"
+    assert generation.quality_preset == nil
     assert generation.request_id == "req_local_123"
     assert generation.remote_history_item_id == "hist_local_123"
     assert generation.character_count == 64
@@ -204,6 +213,38 @@ defmodule PhoenixTts.AudioTest do
     assert generation.remote_history_item_id == "hist_local_123, hist_local_123"
 
     assert generation.audio_binary == "FAKE-MP3-DATAFAKE-MP3-DATA"
+  end
+
+  test "create_generation normalizes text and accepts explicit quality controls" do
+    attrs = %{
+      "text" => "Olá,   mundo!  \n\n  Isso   continua.",
+      "voice_id" => "voice_br",
+      "model_id" => "eleven_multilingual_v2",
+      "output_format" => "mp3_44100_128",
+      "language_code" => "pt",
+      "quality_preset" => "balanced",
+      "stability" => "0.55",
+      "similarity_boost" => "0.82",
+      "style" => "0.20",
+      "speaker_boost" => "false"
+    }
+
+    assert {:ok, %Generation{} = generation} = Audio.create_generation(attrs)
+
+    assert_received {:synthesize_speech, "Olá, mundo!\n\nIsso continua.", opts}
+
+    assert opts[:voice_settings] == %{
+             stability: 0.55,
+             similarity_boost: 0.82,
+             style: 0.2,
+             use_speaker_boost: false
+           }
+
+    assert generation.quality_preset == "balanced"
+    assert generation.stability == 0.55
+    assert generation.similarity_boost == 0.82
+    assert generation.style == 0.2
+    assert generation.speaker_boost == false
   end
 
   test "create_generation turns timeout into an actionable runtime error" do

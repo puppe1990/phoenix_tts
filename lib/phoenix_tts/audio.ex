@@ -8,7 +8,6 @@ defmodule PhoenixTts.Audio do
 
   @practical_chunk_size 5_000
   @max_split_chunks 2
-
   def list_generations do
     from(g in Generation, order_by: [desc: g.inserted_at, desc: g.id])
     |> Repo.all()
@@ -30,12 +29,27 @@ defmodule PhoenixTts.Audio do
       "voice_id" => "",
       "model_id" => "",
       "output_format" => default_output_format(),
-      "language_code" => "pt"
+      "language_code" => "pt",
+      "quality_preset" => default_quality_preset(),
+      "stability" => 0.35,
+      "similarity_boost" => 0.9,
+      "style" => 0.15,
+      "speaker_boost" => true
     }
 
     %Generation{}
     |> Generation.form_changeset(Map.merge(defaults, attrs))
   end
+
+  def quality_profile_options do
+    [
+      {"Alta fidelidade", "high"},
+      {"Equilibrado", "balanced"},
+      {"Mais consistente", "consistent"}
+    ]
+  end
+
+  def default_quality_preset, do: "high"
 
   def list_voices do
     from(v in Voice, order_by: [asc: v.name, asc: v.voice_id])
@@ -48,21 +62,22 @@ defmodule PhoenixTts.Audio do
 
     if changeset.valid? do
       params = Ecto.Changeset.apply_changes(changeset)
+      prepared_text = prepare_text_for_synthesis(params.text)
 
       request_opts = [
         voice_id: params.voice_id,
         model_id: params.model_id,
         output_format: params.output_format,
         language_code: blank_to_nil(params.language_code),
-        voice_settings: %{stability: 0.45, similarity_boost: 0.8}
+        voice_settings: voice_settings_for(params)
       ]
 
-      with {:ok, responses} <- synthesize_text(params.text, request_opts),
+      with {:ok, responses} <- synthesize_text(prepared_text, request_opts),
            audio_binary = merge_audio_chunks(responses),
            {:ok, generation} <-
              insert_generation(
                Map.merge(params, %{
-                 character_count: aggregate_character_count(responses, params.text),
+                 character_count: aggregate_character_count(responses, prepared_text),
                  request_id: aggregate_header_value(responses, :request_id),
                  remote_history_item_id: aggregate_header_value(responses, :history_item_id)
                }),
@@ -182,6 +197,32 @@ defmodule PhoenixTts.Audio do
     Application.get_env(:phoenix_tts, :elevenlabs_default_output_format, "mp3_44100_128")
   end
 
+  defp voice_settings_for(params) do
+    overrides = %{
+      stability: params.stability,
+      similarity_boost: params.similarity_boost,
+      style: params.style,
+      use_speaker_boost: params.speaker_boost
+    }
+
+    Enum.reduce(overrides, preset_voice_settings(params), fn
+      {_key, nil}, acc -> acc
+      {key, value}, acc -> Map.put(acc, key, value)
+    end)
+  end
+
+  defp preset_voice_settings(%{quality_preset: "balanced"}) do
+    %{stability: 0.45, similarity_boost: 0.8, style: 0.1, use_speaker_boost: true}
+  end
+
+  defp preset_voice_settings(%{quality_preset: "consistent"}) do
+    %{stability: 0.65, similarity_boost: 0.78, style: 0.0, use_speaker_boost: true}
+  end
+
+  defp preset_voice_settings(_params) do
+    %{stability: 0.35, similarity_boost: 0.9, style: 0.15, use_speaker_boost: true}
+  end
+
   defp synthesize_text(text, request_opts) do
     with {:ok, chunks} <- split_text_for_generation(text) do
       Enum.reduce_while(chunks, {:ok, []}, fn chunk, {:ok, responses} ->
@@ -206,6 +247,25 @@ defmodule PhoenixTts.Audio do
       true ->
         {:error, "Texto acima do limite operacional. Reduza para até 10.000 caracteres."}
     end
+  end
+
+  defp prepare_text_for_synthesis(text) do
+    text
+    |> to_string()
+    |> String.replace("\r\n", "\n")
+    |> remove_zero_width_characters()
+    |> String.replace(~r/[ \t]+/, " ")
+    |> String.replace(~r/[ ]*\n[ ]*/, "\n")
+    |> String.replace(~r/\n{3,}/, "\n\n")
+    |> String.replace(~r/\s+([,.!?;:])/, "\\1")
+    |> String.replace(~r/([,.!?;:])([^\s\n])/, "\\1 \\2")
+    |> String.trim()
+  end
+
+  defp remove_zero_width_characters(text) do
+    Enum.reduce(["\u200B", "\u200C", "\u200D", "\uFEFF"], text, fn char, acc ->
+      String.replace(acc, char, "")
+    end)
   end
 
   defp split_text_in_two(text) do
@@ -269,6 +329,11 @@ defmodule PhoenixTts.Audio do
       model_id: params.model_id,
       output_format: params.output_format,
       language_code: blank_to_nil(params.language_code),
+      quality_preset: params.quality_preset,
+      stability: params.stability,
+      similarity_boost: params.similarity_boost,
+      style: params.style,
+      speaker_boost: params.speaker_boost,
       audio_binary: audio_binary,
       character_count: params.character_count || String.length(params.text),
       content_type: content_type,
