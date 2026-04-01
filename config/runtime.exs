@@ -81,6 +81,8 @@ config :phoenix_tts,
   elevenlabs_base_url: System.get_env("ELEVENLABS_BASE_URL") || "https://api.elevenlabs.io",
   elevenlabs_receive_timeout:
     String.to_integer(System.get_env("ELEVENLABS_RECEIVE_TIMEOUT", "60000")),
+  elevenlabs_synthesis_receive_timeout:
+    String.to_integer(System.get_env("ELEVENLABS_SYNTHESIS_RECEIVE_TIMEOUT", "180000")),
   elevenlabs_default_output_format:
     System.get_env("ELEVENLABS_DEFAULT_OUTPUT_FORMAT") || "mp3_44100_128",
   api_auth_token: System.get_env("API_AUTH_TOKEN"),

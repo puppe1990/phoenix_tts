@@ -8,10 +8,14 @@ defmodule PhoenixTts.ElevenLabs.ClientTest do
 
     Application.put_env(:phoenix_tts, :elevenlabs_api_key, "test-key")
     Application.put_env(:phoenix_tts, :elevenlabs_base_url, "http://localhost:#{bypass.port}")
+    Application.put_env(:phoenix_tts, :elevenlabs_receive_timeout, 60_000)
+    Application.put_env(:phoenix_tts, :elevenlabs_synthesis_receive_timeout, 180_000)
 
     on_exit(fn ->
       Application.delete_env(:phoenix_tts, :elevenlabs_api_key)
       Application.delete_env(:phoenix_tts, :elevenlabs_base_url)
+      Application.delete_env(:phoenix_tts, :elevenlabs_receive_timeout)
+      Application.delete_env(:phoenix_tts, :elevenlabs_synthesis_receive_timeout)
     end)
 
     %{bypass: bypass}
@@ -94,6 +98,25 @@ defmodule PhoenixTts.ElevenLabs.ClientTest do
               has_more: false,
               next_page_token: nil
             }} = Client.list_voices(%{page_size: 25, search: "br"})
+  end
+
+  test "synthesize_speech uses a dedicated longer receive timeout", %{bypass: bypass} do
+    Application.put_env(:phoenix_tts, :elevenlabs_receive_timeout, 100)
+    Application.put_env(:phoenix_tts, :elevenlabs_synthesis_receive_timeout, 1_000)
+
+    Bypass.expect_once(bypass, "POST", "/v1/text-to-speech/voice_br", fn conn ->
+      Process.sleep(250)
+
+      conn
+      |> Plug.Conn.put_resp_content_type("audio/mpeg")
+      |> Plug.Conn.resp(200, "SLOW-BUT-OK")
+    end)
+
+    assert {:ok, %{audio: "SLOW-BUT-OK"}} =
+             Client.synthesize_speech("Texto para expirar",
+               voice_id: "voice_br",
+               model_id: "eleven_multilingual_v2"
+             )
   end
 
   test "list_models returns only the parsed catalog", %{bypass: bypass} do

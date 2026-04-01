@@ -13,7 +13,7 @@ defmodule PhoenixTts.ElevenLabs.Client do
         {:error, "Configure a variavel ELEVENLABS_API_KEY para gerar audios."}
 
       key ->
-        request(key)
+        synthesis_request(key)
         |> Req.post(
           url: "/v1/text-to-speech/#{voice_id}",
           headers: [{"accept", "audio/mpeg"}],
@@ -170,6 +170,13 @@ defmodule PhoenixTts.ElevenLabs.Client do
       base_url: Application.fetch_env!(:phoenix_tts, :elevenlabs_base_url),
       headers: [{"xi-api-key", api_key}],
       receive_timeout: Application.get_env(:phoenix_tts, :elevenlabs_receive_timeout, 60_000)
+    )
+  end
+
+  defp synthesis_request(api_key) do
+    Req.merge(request(api_key),
+      receive_timeout:
+        Application.get_env(:phoenix_tts, :elevenlabs_synthesis_receive_timeout, 180_000)
     )
   end
 
