@@ -27,6 +27,7 @@ defmodule PhoenixTtsWeb.AudioLive do
      |> assign(:remote_history_has_more, remote_history_has_more)
      |> assign(:remote_history_loading, false)
      |> assign(:generations, Audio.list_generations())
+     |> assign(:generation_queue, [])
      |> assign(:recent_generation_id, nil)
      |> assign(:advanced_open, false)
      |> assign(:form_feedback, nil)
@@ -59,27 +60,25 @@ defmodule PhoenixTtsWeb.AudioLive do
     normalized_params = normalize_form_attrs(params)
     changeset = Audio.change_generation(normalized_params)
 
-    cond do
-      socket.assigns.generation_pending ->
-        {:noreply, socket}
+    if changeset.valid? do
+      queue_item = build_generation_queue_item(normalized_params)
 
-      changeset.valid? ->
-        {:noreply,
-         socket
-         |> assign(:form_feedback, {:info, "Gerando áudio em background. Aguarde a finalização."})
-         |> assign(:generation_pending, true)
-         |> assign_form(normalized_params)
-         |> start_async(:generate_audio, fn ->
-           {Audio.create_generation(normalized_params), normalized_params}
-         end)}
-
-      true ->
-        {:noreply,
-         socket
-         |> assign(:generation_pending, false)
-         |> assign(:form_feedback, {:error, feedback_message(changeset)})
-         |> assign(:form_attrs, normalized_params)
-         |> assign(:form, to_form(changeset, as: :audio_generation))}
+      {:noreply,
+       socket
+       |> assign(
+         :form_feedback,
+         {:info, queue_submission_message(socket.assigns.generation_pending)}
+       )
+       |> update(:generation_queue, &(&1 ++ [queue_item]))
+       |> assign_form(Map.put(normalized_params, "text", ""))
+       |> maybe_start_next_generation()}
+    else
+      {:noreply,
+       socket
+       |> assign(:generation_pending, false)
+       |> assign(:form_feedback, {:error, feedback_message(changeset)})
+       |> assign(:form_attrs, normalized_params)
+       |> assign(:form, to_form(changeset, as: :audio_generation))}
     end
   end
 
@@ -227,7 +226,12 @@ defmodule PhoenixTtsWeb.AudioLive do
           "voice_id" => generation.voice_id,
           "model_id" => generation.model_id,
           "output_format" => generation.output_format,
-          "language_code" => generation.language_code || ""
+          "language_code" => generation.language_code || "",
+          "quality_preset" => generation.quality_preset || Audio.default_quality_preset(),
+          "stability" => generation.stability,
+          "similarity_boost" => generation.similarity_boost,
+          "style" => generation.style,
+          "speaker_boost" => generation.speaker_boost
         }
 
         socket
@@ -244,7 +248,36 @@ defmodule PhoenixTtsWeb.AudioLive do
     {:noreply, socket}
   end
 
-  def handle_async(:generate_audio, {:ok, {{:ok, generation}, params}}, socket) do
+  def handle_event("retry_generation", %{"id" => id}, socket) do
+    {:noreply,
+     socket
+     |> update(:generation_queue, fn queue ->
+       Enum.map(queue, fn item ->
+         if item.id == id and item.status == :error do
+           item
+           |> Map.put(:status, :queued)
+           |> Map.put(:error_message, nil)
+           |> Map.put(:generation, nil)
+           |> Map.put(:generation_id, nil)
+           |> Map.update!(:attempts, &(&1 + 1))
+         else
+           item
+         end
+       end)
+     end)
+     |> assign(
+       :form_feedback,
+       {:info, "Item recolocado na fila. A próxima execução vai tentar novamente."}
+     )
+     |> maybe_start_next_generation()}
+  end
+
+  def handle_async(
+        {:generate_audio, queue_item_id},
+        {:ok, {returned_queue_item_id, {:ok, generation}, params}},
+        socket
+      )
+      when returned_queue_item_id == queue_item_id do
     preserved_attrs =
       params
       |> normalize_form_attrs()
@@ -257,26 +290,53 @@ defmodule PhoenixTtsWeb.AudioLive do
      |> assign(:recent_generation_id, generation.id)
      |> assign(
        :form_feedback,
-       {:info, "Áudio pronto. A última configuração foi mantida para a próxima geração."}
+       {:info, queue_success_message(socket.assigns.generation_queue, queue_item_id)}
      )
+     |> update_generation_queue_item(queue_item_id, fn item ->
+       item
+       |> Map.put(:status, :success)
+       |> Map.put(:generation, generation)
+       |> Map.put(:generation_id, generation.id)
+       |> Map.put(:error_message, nil)
+     end)
      |> assign_form(preserved_attrs)
-     |> assign(:generations, [generation | socket.assigns.generations])}
+     |> assign(:generations, [generation | socket.assigns.generations])
+     |> maybe_start_next_generation()}
   end
 
-  def handle_async(:generate_audio, {:ok, {{:error, changeset}, params}}, socket) do
+  def handle_async(
+        {:generate_audio, queue_item_id},
+        {:ok, {returned_queue_item_id, {:error, changeset}, params}},
+        socket
+      )
+      when returned_queue_item_id == queue_item_id do
     {:noreply,
      socket
      |> assign(:generation_pending, false)
-     |> assign(:form_feedback, {:error, feedback_message(changeset)})
-     |> assign(:form_attrs, normalize_form_attrs(params))
-     |> assign(:form, to_form(changeset, as: :audio_generation))}
+     |> assign(:form_feedback, {:error, queue_error_message(changeset)})
+     |> update_generation_queue_item(queue_item_id, fn item ->
+       item
+       |> Map.put(:status, :error)
+       |> Map.put(:error_message, feedback_message(changeset))
+       |> Map.put(:params, normalize_form_attrs(params))
+     end)
+     |> maybe_start_next_generation()}
   end
 
-  def handle_async(:generate_audio, {:exit, _reason}, socket) do
+  def handle_async({:generate_audio, queue_item_id}, {:exit, _reason}, socket) do
     {:noreply,
      socket
      |> assign(:generation_pending, false)
-     |> assign(:form_feedback, {:error, "A geração falhou internamente. Tente novamente."})}
+     |> assign(
+       :form_feedback,
+       {:error, "A geração falhou internamente. O item ficou disponível para retry."}
+     )
+     |> update_generation_queue_item(queue_item_id, fn item ->
+       item
+       |> Map.put(:status, :error)
+       |> Map.put(:error_message, "A geração falhou internamente. Tente novamente.")
+     end)
+     |> maybe_start_next_generation()}
   end
 
   def render(assigns) do
@@ -438,6 +498,98 @@ defmodule PhoenixTtsWeb.AudioLive do
                   {elem(@form_feedback, 1)}
                 </div>
 
+                <section
+                  :if={@generation_queue != []}
+                  id="generation-queue"
+                  class="mt-6 rounded-[1.6rem] border border-white/10 bg-[#0d1729] p-4 sm:p-5"
+                >
+                  <div class="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <p class="text-[11px] uppercase tracking-[0.24em] text-[#7fd6e8]/70">
+                        Fila de geração
+                      </p>
+                      <h2 class="mt-2 text-lg font-semibold text-[#f7f1e8]">
+                        {queue_overview_label(@generation_queue)}
+                      </h2>
+                    </div>
+                    <div class="rounded-full border border-white/10 px-3 py-1 text-[11px] uppercase tracking-[0.18em] text-white/45">
+                      {length(@generation_queue)} itens
+                    </div>
+                  </div>
+
+                  <div class="mt-4 space-y-3">
+                    <article
+                      :for={item <- Enum.reverse(@generation_queue)}
+                      id={"generation-queue-item-#{item.id}"}
+                      class="rounded-[1.2rem] border border-white/10 bg-white/[0.03] p-4"
+                    >
+                      <div class="flex items-start justify-between gap-4">
+                        <div class="min-w-0">
+                          <div class="flex items-center gap-2">
+                            <.icon
+                              name={queue_status_icon(item.status)}
+                              class={["size-5 shrink-0", queue_status_icon_class(item.status)]}
+                            />
+                            <p class="text-sm font-semibold uppercase tracking-[0.16em] text-white/55">
+                              {queue_status_label(item.status)}
+                            </p>
+                          </div>
+                          <p class="mt-3 text-base font-semibold leading-6 text-[#f7f1e8]">
+                            {excerpt(item.params["text"])}
+                          </p>
+                          <div class="mt-2 flex flex-wrap gap-x-4 gap-y-2 text-sm text-white/45">
+                            <span>{summary_voice(@voices, item.params["voice_id"])}</span>
+                            <span>{summary_model(@models, item.params["model_id"])}</span>
+                            <span>{summary_language(item.params["language_code"])}</span>
+                          </div>
+                        </div>
+
+                        <div class="text-right text-xs uppercase tracking-[0.16em] text-white/30">
+                          tentativa {item.attempts}
+                        </div>
+                      </div>
+
+                      <p
+                        :if={item.status == :error and item.error_message}
+                        class="mt-3 rounded-xl border border-[#f29c6b]/20 bg-[#f29c6b]/10 px-3 py-3 text-sm text-[#ffe0cf]"
+                      >
+                        {item.error_message}
+                      </p>
+
+                      <div class="mt-4 flex flex-wrap items-center gap-4 text-sm">
+                        <button
+                          :if={item.status == :error}
+                          type="button"
+                          phx-click="retry_generation"
+                          phx-value-id={item.id}
+                          class="inline-flex items-center gap-2 rounded-full border border-[#f29c6b]/35 px-4 py-2 font-semibold text-[#ffd9c9] transition hover:bg-[#f29c6b]/10"
+                        >
+                          <.icon name="hero-arrow-path" class="size-4" /> Retry
+                        </button>
+
+                        <button
+                          :if={item.status == :success and item.generation_id}
+                          type="button"
+                          phx-click="reuse_generation"
+                          phx-value-id={item.generation_id}
+                          class="font-semibold text-[#7fd6e8] underline decoration-[#7fd6e8]/35 underline-offset-4"
+                        >
+                          usar novamente esta configuração
+                        </button>
+
+                        <a
+                          :if={item.status == :success and item.generation_id}
+                          href={~p"/generations/#{item.generation_id}/audio?download=1"}
+                          download
+                          class="font-semibold text-[#7fd6e8] underline decoration-[#7fd6e8]/35 underline-offset-4"
+                        >
+                          baixar mp3
+                        </a>
+                      </div>
+                    </article>
+                  </div>
+                </section>
+
                 <.form
                   for={@form}
                   id="tts-form"
@@ -445,10 +597,7 @@ defmodule PhoenixTtsWeb.AudioLive do
                   phx-change="validate"
                   phx-submit="save"
                 >
-                  <fieldset
-                    disabled={@generation_pending}
-                    class="grid gap-6 disabled:opacity-80 xl:grid-cols-[1.25fr_0.75fr]"
-                  >
+                  <fieldset class="grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
                     <div class="rounded-[1.45rem] border border-white/8 bg-white/[0.02] p-4">
                       <div class="flex items-center justify-between gap-4">
                         <label for={@form[:text].id} class="text-sm font-semibold text-[#f7f1e8]">
@@ -579,9 +728,9 @@ defmodule PhoenixTtsWeb.AudioLive do
                             {summary_voice(@voices, @form_attrs["voice_id"])} • {summary_model(
                               @models,
                               @form_attrs["model_id"]
-                            )} • {summary_language(@form_attrs["language_code"])} • {summary_output(
-                              @form_attrs["output_format"]
-                            )}
+                            )} • {summary_quality_preset(@form_attrs["quality_preset"])} • {summary_language(
+                              @form_attrs["language_code"]
+                            )} • {summary_output(@form_attrs["output_format"])}
                           </p>
                         </div>
                       </div>
@@ -597,7 +746,7 @@ defmodule PhoenixTtsWeb.AudioLive do
                               Avançado
                             </p>
                             <p class="mt-1 text-sm text-white/58">
-                              Output, idioma e Voice ID manual quando necessário.
+                              Qualidade, output, idioma e Voice ID manual quando necessário.
                             </p>
                           </div>
                           <span class="text-xs uppercase tracking-[0.18em] text-white/38">
@@ -606,10 +755,72 @@ defmodule PhoenixTtsWeb.AudioLive do
                         </button>
 
                         <div :if={not @advanced_open}>
+                          <.input field={@form[:quality_preset]} type="hidden" />
+                          <.input field={@form[:stability]} type="hidden" />
+                          <.input field={@form[:similarity_boost]} type="hidden" />
+                          <.input field={@form[:style]} type="hidden" />
+                          <.input field={@form[:speaker_boost]} type="hidden" />
                           <.input field={@form[:output_format]} type="hidden" />
                         </div>
 
                         <div :if={@advanced_open} class="mt-4 space-y-3 border-t border-white/10 pt-4">
+                          <.input
+                            field={@form[:quality_preset]}
+                            type="select"
+                            label="Preset de qualidade"
+                            options={Audio.quality_profile_options()}
+                            class="rounded-[1.1rem] border border-white/10 bg-[#111b2f] px-4 py-3 text-[#f7f1e8]"
+                          />
+
+                          <div class="grid gap-3 md:grid-cols-2">
+                            <.input
+                              field={@form[:stability]}
+                              type="number"
+                              label="Stability"
+                              min="0"
+                              max="1"
+                              step="0.05"
+                              class="rounded-[1.1rem] border border-white/10 bg-[#111b2f] px-4 py-3 text-[#f7f1e8]"
+                            />
+
+                            <.input
+                              field={@form[:similarity_boost]}
+                              type="number"
+                              label="Similarity boost"
+                              min="0"
+                              max="1"
+                              step="0.05"
+                              class="rounded-[1.1rem] border border-white/10 bg-[#111b2f] px-4 py-3 text-[#f7f1e8]"
+                            />
+                          </div>
+
+                          <div class="grid gap-3 md:grid-cols-2">
+                            <.input
+                              field={@form[:style]}
+                              type="number"
+                              label="Style exaggeration"
+                              min="0"
+                              max="1"
+                              step="0.05"
+                              class="rounded-[1.1rem] border border-white/10 bg-[#111b2f] px-4 py-3 text-[#f7f1e8]"
+                            />
+
+                            <.input
+                              field={@form[:speaker_boost]}
+                              type="select"
+                              label="Speaker boost"
+                              options={[{"Ligado", "true"}, {"Desligado", "false"}]}
+                              class="rounded-[1.1rem] border border-white/10 bg-[#111b2f] px-4 py-3 text-[#f7f1e8]"
+                            />
+                          </div>
+
+                          <div class="rounded-[1.2rem] border border-white/10 bg-[#0d1729] px-4 py-3 text-sm text-white/58">
+                            <p class="font-medium text-[#f7f1e8]">Leitura de qualidade</p>
+                            <p class="mt-2 leading-6">
+                              {quality_hint(@form_attrs)}
+                            </p>
+                          </div>
+
                           <.input
                             field={@form[:output_format]}
                             type="select"
@@ -667,13 +878,10 @@ defmodule PhoenixTtsWeb.AudioLive do
                     <button
                       type="submit"
                       phx-disable-with="Iniciando..."
-                      disabled={
-                        @generation_pending or
-                          submit_disabled?(@api_key_configured, @models, @form_attrs)
-                      }
+                      disabled={submit_disabled?(@api_key_configured, @models, @form_attrs)}
                       class="inline-flex w-full items-center justify-center rounded-full bg-[#7fe3f5] px-8 py-4 text-sm font-semibold uppercase tracking-[0.18em] text-[#07111f] transition hover:bg-[#a2edfa] disabled:cursor-not-allowed disabled:opacity-50 lg:w-auto lg:min-w-72"
                     >
-                      {if @generation_pending, do: "Gerando áudio...", else: "Gerar áudio"}
+                      {queue_submit_label(@generation_pending)}
                     </button>
                   </div>
                 </.form>
@@ -1034,6 +1242,8 @@ defmodule PhoenixTtsWeb.AudioLive do
                     </div>
                     <div class="mt-4 space-y-1 text-sm text-white/58">
                       <p>{summary_model(@models, generation.model_id)}</p>
+                      <p>{summary_quality_preset(generation.quality_preset)}</p>
+                      <p>{summary_voice_settings(generation)}</p>
                       <p>{summary_language(generation.language_code)}</p>
                       <p>{summary_output(generation.output_format)}</p>
                       <p class="text-xs text-white/30">{local_datetime(generation.inserted_at)}</p>
@@ -1177,7 +1387,12 @@ defmodule PhoenixTtsWeb.AudioLive do
       "voice_id" => Map.get(attrs, "voice_id", ""),
       "model_id" => Map.get(attrs, "model_id", ""),
       "output_format" => Map.get(attrs, "output_format", Audio.default_output_format()),
-      "language_code" => Map.get(attrs, "language_code", "pt")
+      "language_code" => Map.get(attrs, "language_code", "pt"),
+      "quality_preset" => Map.get(attrs, "quality_preset", Audio.default_quality_preset()),
+      "stability" => normalize_decimal(Map.get(attrs, "stability", 0.35)),
+      "similarity_boost" => normalize_decimal(Map.get(attrs, "similarity_boost", 0.9)),
+      "style" => normalize_decimal(Map.get(attrs, "style", 0.15)),
+      "speaker_boost" => normalize_boolean(Map.get(attrs, "speaker_boost", true))
     }
   end
 
@@ -1187,6 +1402,11 @@ defmodule PhoenixTtsWeb.AudioLive do
       "model_id" => first_model_id(models) || "",
       "output_format" => Audio.default_output_format(),
       "language_code" => "pt",
+      "quality_preset" => Audio.default_quality_preset(),
+      "stability" => 0.35,
+      "similarity_boost" => 0.9,
+      "style" => 0.15,
+      "speaker_boost" => true,
       "text" => ""
     }
   end
@@ -1208,6 +1428,10 @@ defmodule PhoenixTtsWeb.AudioLive do
       true ->
         "Não foi possível gerar o áudio. Revise os campos e tente novamente."
     end
+  end
+
+  defp queue_error_message(changeset) do
+    "A geração falhou e o item ficou disponível para retry: #{feedback_message(changeset)}"
   end
 
   defp clone_feedback_message(changeset) do
@@ -1272,6 +1496,18 @@ defmodule PhoenixTtsWeb.AudioLive do
       nil when language_code in [nil, ""] -> "Idioma automático"
       nil -> language_code
     end
+  end
+
+  defp summary_quality_preset(preset) do
+    case Enum.find(Audio.quality_profile_options(), fn {_label, value} -> value == preset end) do
+      {label, _value} -> label
+      nil when preset in [nil, ""] -> "Preset padrão"
+      nil -> preset
+    end
+  end
+
+  defp summary_voice_settings(generation) do
+    "Stability #{format_decimal(generation.stability)} • Similarity #{format_decimal(generation.similarity_boost)} • Style #{format_decimal(generation.style)} • Speaker boost #{speaker_boost_label(generation.speaker_boost)}"
   end
 
   defp prepend_cloned_voice(voices, %{voice_id: voice_id, name: name})
@@ -1347,6 +1583,25 @@ defmodule PhoenixTtsWeb.AudioLive do
   end
 
   defp contains_query?(_, _), do: false
+
+  defp normalize_decimal(value) when is_float(value), do: value
+  defp normalize_decimal(value) when is_integer(value), do: value / 1
+
+  defp normalize_decimal(value) when is_binary(value) do
+    case Float.parse(value) do
+      {parsed, _rest} -> parsed
+      :error -> nil
+    end
+  end
+
+  defp normalize_decimal(_value), do: nil
+
+  defp normalize_boolean(value) when is_boolean(value), do: value
+  defp normalize_boolean("true"), do: true
+  defp normalize_boolean("false"), do: false
+  defp normalize_boolean("on"), do: true
+  defp normalize_boolean("off"), do: false
+  defp normalize_boolean(_value), do: nil
 
   defp voice_combobox_options(voices, query) do
     Enum.map(matching_voices(voices, query), fn voice ->
@@ -1628,10 +1883,17 @@ defmodule PhoenixTtsWeb.AudioLive do
     ratio = usage_ratio(text)
 
     cond do
-      ratio > 1.0 -> "Texto acima de 5000 chars. O Phoenix TTS divide em 2 chamadas separadas."
-      ratio >= 0.9 -> "Texto grande. Se falhar, corte em blocos menores."
-      ratio >= 0.6 -> "Texto saudável para geração contínua."
-      true -> "Texto curto, bom para iteração rápida."
+      ratio > 1.0 ->
+        "Texto acima de 5000 chars. O Phoenix TTS higieniza o texto e divide em 2 chamadas separadas."
+
+      ratio >= 0.9 ->
+        "Texto grande. Se falhar, corte em blocos menores."
+
+      ratio >= 0.6 ->
+        "Texto saudável para geração contínua."
+
+      true ->
+        "Texto curto, bom para iteração rápida."
     end
   end
 
@@ -1656,6 +1918,126 @@ defmodule PhoenixTtsWeb.AudioLive do
   end
 
   defp generation_class(_id, _recent_generation_id), do: "border-white/10"
+
+  defp build_generation_queue_item(params) do
+    %{
+      id: "queue-#{System.unique_integer([:positive])}",
+      params: params,
+      status: :queued,
+      error_message: nil,
+      generation: nil,
+      generation_id: nil,
+      attempts: 1
+    }
+  end
+
+  defp maybe_start_next_generation(socket) do
+    if socket.assigns.generation_pending do
+      socket
+    else
+      case Enum.find(socket.assigns.generation_queue, &(&1.status == :queued)) do
+        nil ->
+          assign(socket, :generation_pending, false)
+
+        queue_item ->
+          socket
+          |> assign(:generation_pending, true)
+          |> update_generation_queue_item(queue_item.id, &Map.put(&1, :status, :processing))
+          |> start_async({:generate_audio, queue_item.id}, fn ->
+            {queue_item.id, Audio.create_generation(queue_item.params), queue_item.params}
+          end)
+      end
+    end
+  end
+
+  defp update_generation_queue_item(socket, queue_item_id, updater) do
+    update(socket, :generation_queue, fn queue ->
+      Enum.map(queue, fn item ->
+        if item.id == queue_item_id, do: updater.(item), else: item
+      end)
+    end)
+  end
+
+  defp queue_submission_message(true),
+    do: "Áudio adicionado à fila. O processamento atual termina antes do próximo item começar."
+
+  defp queue_submission_message(false),
+    do: "Áudio adicionado à fila. O primeiro item começou a processar agora."
+
+  defp queue_success_message(queue, queue_item_id) do
+    remaining =
+      queue
+      |> Enum.reject(&(&1.id == queue_item_id))
+      |> Enum.count(&(&1.status in [:queued, :processing]))
+
+    if remaining > 0 do
+      "Áudio pronto. O próximo item da fila começou automaticamente."
+    else
+      "Áudio pronto. A fila terminou e a última configuração foi mantida para a próxima geração."
+    end
+  end
+
+  defp queue_overview_label(queue) do
+    processing = Enum.count(queue, &(&1.status == :processing))
+    queued = Enum.count(queue, &(&1.status == :queued))
+    failed = Enum.count(queue, &(&1.status == :error))
+
+    cond do
+      processing > 0 and queued > 0 -> "#{processing} em execução, #{queued} aguardando"
+      processing > 0 -> "#{processing} em execução"
+      queued > 0 -> "#{queued} aguardando"
+      failed > 0 -> "#{failed} com falha para retry"
+      true -> "Histórico recente da fila"
+    end
+  end
+
+  defp queue_submit_label(true), do: "Adicionar à fila"
+  defp queue_submit_label(false), do: "Gerar áudio"
+
+  defp queue_status_label(:queued), do: "Na fila"
+  defp queue_status_label(:processing), do: "Processando"
+  defp queue_status_label(:success), do: "Concluído"
+  defp queue_status_label(:error), do: "Falhou"
+
+  defp queue_status_icon(:queued), do: "hero-clock"
+  defp queue_status_icon(:processing), do: "hero-arrow-path"
+  defp queue_status_icon(:success), do: "hero-check-circle"
+  defp queue_status_icon(:error), do: "hero-x-circle"
+
+  defp queue_status_icon_class(:queued), do: "text-white/45"
+  defp queue_status_icon_class(:processing), do: "animate-spin text-[#7fd6e8]"
+  defp queue_status_icon_class(:success), do: "text-[#7fe3a1]"
+  defp queue_status_icon_class(:error), do: "text-[#f7b38b]"
+
+  defp quality_hint(attrs) do
+    case attrs["quality_preset"] do
+      "balanced" ->
+        "Equilíbrio entre naturalidade e previsibilidade, com menos exagero de estilo."
+
+      "consistent" ->
+        "Foca em estabilidade e repetibilidade para locução mais limpa e uniforme."
+
+      _ ->
+        "Prioriza naturalidade e fidelidade do timbre. Ideal para a melhor qualidade final."
+    end
+  end
+
+  defp format_decimal(value) when is_float(value) do
+    formatted = :erlang.float_to_binary(value, decimals: 2)
+
+    cond do
+      String.ends_with?(formatted, ".00") -> String.replace_suffix(formatted, ".00", ".0")
+      String.ends_with?(formatted, "0") -> String.trim_trailing(formatted, "0")
+      true -> formatted
+    end
+  end
+
+  defp format_decimal(value) when is_integer(value), do: Integer.to_string(value)
+  defp format_decimal(_value), do: "-"
+
+  defp speaker_boost_label(true), do: "ligado"
+  defp speaker_boost_label(false), do: "desligado"
+  defp speaker_boost_label(_value), do: "padrão"
 
   defp local_datetime(nil), do: "Sem data"
 
