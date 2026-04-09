@@ -9,7 +9,10 @@ defmodule PhoenixTts.Audio do
   @practical_chunk_size 5_000
   @max_split_chunks 2
   def list_generations do
-    from(g in Generation, order_by: [desc: g.inserted_at, desc: g.id])
+    from(g in Generation,
+      order_by: [desc: g.inserted_at, desc: g.id],
+      select: struct(g, ^listing_fields())
+    )
     |> Repo.all()
   end
 
@@ -400,6 +403,29 @@ defmodule PhoenixTts.Audio do
       category: voice.category,
       labels: voice.labels || %{}
     }
+  end
+
+  defp listing_fields do
+    [
+      :id,
+      :audio_path,
+      :character_count,
+      :content_type,
+      :language_code,
+      :model_id,
+      :output_format,
+      :quality_preset,
+      :remote_history_item_id,
+      :request_id,
+      :similarity_boost,
+      :speaker_boost,
+      :stability,
+      :style,
+      :text,
+      :voice_id,
+      :inserted_at,
+      :updated_at
+    ]
   end
 
   defp maybe_persist_cloned_voice(%{voice_id: voice_id, name: name} = clone)

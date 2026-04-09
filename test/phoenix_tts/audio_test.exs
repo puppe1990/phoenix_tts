@@ -168,6 +168,20 @@ defmodule PhoenixTts.AudioTest do
     assert [%Generation{id: ^generation_id}] = Audio.list_generations()
   end
 
+  test "list_generations omits embedded audio bytes from listing queries" do
+    assert {:ok, %Generation{id: generation_id}} =
+             Audio.create_generation(%{
+               "text" =>
+                 "Uma narração curta, suficiente para validar a listagem sem carregar blobs.",
+               "voice_id" => "voice_br",
+               "model_id" => "eleven_multilingual_v2",
+               "output_format" => "mp3_44100_128",
+               "language_code" => "pt"
+             })
+
+    assert [%Generation{id: ^generation_id, audio_binary: nil}] = Audio.list_generations()
+  end
+
   test "create_generation validates required fields before calling ElevenLabs" do
     assert {:error, changeset} =
              Audio.create_generation(%{
