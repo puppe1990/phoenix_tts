@@ -50,18 +50,6 @@ if System.get_env("PHX_SERVER") do
   config :phoenix_tts, PhoenixTtsWeb.Endpoint, server: true
 end
 
-ipv6_socket_options =
-  case System.get_env("ECTO_IPV6", "true") do
-    value when value in ["true", "1"] -> [:inet6]
-    _ -> []
-  end
-
-database_ssl =
-  case System.get_env("DATABASE_SSL", "true") do
-    value when value in ["true", "1"] -> true
-    _ -> false
-  end
-
 api_allowed_origins =
   case System.get_env("API_ALLOWED_ORIGINS") do
     nil ->
@@ -92,18 +80,26 @@ config :phoenix_tts,
       Path.expand("../priv/static/generated", __DIR__)
 
 if config_env() == :prod do
-  database_url =
-    System.get_env("DATABASE_URL") ||
-      raise """
-      environment variable DATABASE_URL is missing.
-      Use the database provisioned by Gigalixir or set a postgres:// URL manually.
-      """
+  turso_url = System.get_env("TURSO_DATABASE_URL")
+  turso_token = System.get_env("TURSO_AUTH_TOKEN")
 
-  config :phoenix_tts, PhoenixTts.Repo,
-    url: database_url,
-    pool_size: String.to_integer(System.get_env("POOL_SIZE") || "5"),
-    socket_options: ipv6_socket_options,
-    ssl: database_ssl
+  repo_config =
+    if turso_url && turso_token do
+      [
+        uri: turso_url,
+        auth_token: turso_token,
+        database: System.get_env("DATABASE_PATH", "replica.db"),
+        sync: true,
+        pool_size: String.to_integer(System.get_env("POOL_SIZE") || "5")
+      ]
+    else
+      [
+        database: System.get_env("DATABASE_PATH") || "build.db",
+        pool_size: String.to_integer(System.get_env("POOL_SIZE") || "5")
+      ]
+    end
+
+  config :phoenix_tts, PhoenixTts.Repo, repo_config
 
   # The secret key base is used to sign/encrypt cookies and other secrets.
   # A default value is used in config/dev.exs and config/test.exs but you
